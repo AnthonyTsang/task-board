@@ -28,7 +28,7 @@ Versions verified against the npm registry on 2026-09-07.
 | Concern | Choice | Version | Note |
 |---|---|---|---|
 | Runtime | Node.js | 24.12 | npm 11.19 workspaces |
-| Language | TypeScript | 7.0.x | strict mode across all workspaces; see note below |
+| Language | TypeScript | 7.0.2 (pinned) | strict mode across all workspaces; see note below |
 | Server | Express | 5.2.x | forwards async rejections to the error handler natively |
 | ORM | Sequelize | 6.37.x | v7 is still alpha; v6 is the stable line |
 | DB driver | `pg` | 8.x | |
@@ -39,7 +39,7 @@ Versions verified against the npm registry on 2026-09-07.
 | UI | React | 19.2.x | |
 | Server state | TanStack Query | 5.102.x | `@tanstack/react-query` |
 | Styling | Tailwind CSS | 4.3.x | CSS-first — no `tailwind.config.js` |
-| Testing | Vitest 5.x + Supertest 7.x + React Testing Library | — | |
+| Testing | Vitest + Supertest + React Testing Library | 5.0.0 (pinned) / 7.2.x | |
 | Dev runner | tsx | 4.23.x | `tsx watch` for the server |
 | Task runner | concurrently | 10.x | runs server and client together |
 
@@ -48,6 +48,12 @@ it: nothing here depends on decorators, namespaces, or other features the native
 and Vite 8 and Node 24 are contemporaries of it. If a toolchain incompatibility surfaces during
 implementation, falling back to the 5.9 line is a `package.json` change with no source impact, since no
 code in this design uses version-specific syntax.
+
+TypeScript 7.0.2 and Vitest 5.0.0 are both recent majors and are **pinned exactly**, not left on a caret
+range. A floating range on a just-released major is how a working scaffold breaks a week later.
+
+All three workspaces are ESM (`"type": "module"`). Vite 8 requires it on the client, and stating it for
+`server` and `shared` too prevents the `shared` import from resolving differently on each side.
 
 Sequelize 7 is deliberately avoided: as of this date it has only alpha releases. `sequelize-typescript`
 is not used either — Sequelize 6's `InferAttributes` / `InferCreationAttributes` generics provide typed
@@ -70,7 +76,7 @@ bmo-task-board/
   docs/superpowers/specs/
 
   shared/
-    package.json
+    package.json               types-only: "types" points at src, no "main", no build
     src/index.ts               TaskDto, CreateTaskInput, ApiErrorBody, ApiErrorCode
 
   server/
@@ -110,6 +116,29 @@ bmo-task-board/
 
 `app.ts` builds and returns the Express app but never calls `listen()`; `server.ts` does. This split is
 what lets Supertest drive the real application in tests without binding a port.
+
+### The `shared` package emits nothing
+
+`shared` contains **only types** — `TaskDto` and `CreateTaskInput` are interfaces, `ApiErrorBody` is an
+interface, and `ApiErrorCode` is a string-literal union:
+
+```ts
+export type ApiErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'INTERNAL_ERROR';
+```
+
+Nothing in it survives compilation, so its `package.json` sets `"types": "./src/index.ts"` and declares
+**no `main` and no build script**. Server and client typecheck directly against its source, and every
+import from it is `import type { … }`, which TypeScript erases entirely.
+
+This is a deliberate choice to eliminate a build-ordering hazard. Had `shared` emitted JavaScript to
+`dist/`, a fresh `npm install && npm run dev` would fail — nothing would have built `shared` yet — and
+every one of `dev`, `test`, and `build` would need a prebuild step wired in ahead of it. With zero
+runtime output there is no ordering to get wrong.
+
+The constraint this imposes: **`shared` must never gain a runtime value** — no `const` objects, no enums,
+no helper functions. Anything runtime that both sides need belongs in each side's own workspace. If that
+constraint ever has to break, `shared` gains a `tsc` build and a `prebuild`/`predev`/`pretest` hook, and
+this section must be revised alongside it.
 
 ### Module boundaries
 
@@ -166,6 +195,13 @@ Supabase table editor) while the TypeScript model and the JSON API use camelCase
 | `updated_at` | `timestamptz` | not null |
 
 `created_at` is indexed because the list endpoint always orders by it.
+
+**The database owns id generation.** The migration sets the column default to `gen_random_uuid()`; the
+model declares `id` as `CreationOptional<string>` and sets **no** `defaultValue`, so inserts omit the
+column and Sequelize reads the generated value back via Postgres `RETURNING`. Stated explicitly because
+app-side generation (`DataTypes.UUIDV4`) is the equally common alternative, and having both configured
+is a silent source of confusion. The benefit of the DB-side default: rows inserted by hand in the
+Supabase SQL editor get valid ids too.
 
 Model definition uses Sequelize 6's inference generics:
 
@@ -226,7 +262,10 @@ filter query parameter — filtering is done client-side.
 Defined once in `lib/validate.ts` as zod schemas, applied per route module:
 
 - `title` — required, trimmed, 1 to 200 characters after trimming
-- `description` — optional, at most 2000 characters; absent or `null` both store `NULL`
+- `description` — optional, trimmed, at most 2000 characters after trimming. **Absent, `null`, and the
+  empty string all store `NULL`** — the zod schema trims then coerces `''` to `null`. This matters
+  because an untouched description input submits `""`, and without the coercion the table would fill
+  with a mix of `NULL` and `''` rows that the client renders differently
 - `:id` — must parse as a UUID
 
 Validating `:id` matters beyond tidiness: without it, a request to `/api/tasks/abc` reaches Postgres as
@@ -245,6 +284,13 @@ Via Sequelize: `Task.update({ completed: literal('NOT completed') }, { where: { 
 Zero affected rows means the task does not exist, which becomes a `404`.
 
 This avoids the lost-update race in which two concurrent toggles both read `false` and both write `true`.
+
+**Implementation note.** Sequelize 6's `Model.update` runs attribute validation by default, and passing a
+`Literal` object as the value of a `BOOLEAN` attribute is exactly the kind of thing that can throw at
+runtime. If it does, the fallback is `sequelize.query` with the raw statement above and
+`type: QueryTypes.UPDATE`, which returns the affected rows just the same. This is called out because no
+automated test executes SQL — manual checklist step 5 is the only thing that exercises this line, and
+the failure should not have to be rediscovered under time pressure.
 
 **Known tradeoff — the toggle is not idempotent.** Replaying the request flips the value again, so a
 retry after an ambiguous failure can land on the wrong state. Given a single user and no auth this is
@@ -312,12 +358,31 @@ this is the idiomatic way to obtain per-item pending state.
 
 ### Optimistic updates
 
-- **Toggle and delete are optimistic.** `onMutate` cancels in-flight queries, snapshots the cache,
-  applies the change; `onError` restores the snapshot; `onSettled` invalidates `['tasks']`. Without
-  this the checkbox waits two round trips (the mutation, then the refetch).
+- **Toggle and delete are optimistic, rolling back one entry — never the whole list.** Without this the
+  checkbox waits two round trips (the mutation, then the refetch).
 - **Create is invalidate-only.** The server generates `id`, `createdAt`, and `updatedAt`, so an
   optimistic insert would need a placeholder row and subsequent reconciliation. A brief spinner on form
   submit reads as normal behavior.
+
+The rollback granularity is a correctness requirement, not a style preference. TanStack's documented
+optimistic-update example snapshots the entire query result in `onMutate` and restores it wholesale in
+`onError`. **That pattern is wrong for this UI**, because two different rows can be in flight at the
+same time:
+
+> Row A toggles — snapshot S₀ taken, optimistic write applied. Row B toggles — snapshot S₁ taken, which
+> already contains A's optimistic change. Row A's request fails — restoring S₀ also erases B's optimistic
+> change, even though B is still in flight and about to succeed.
+
+So each mutation keeps **only the affected task's prior value** in its `onMutate` context, not the array:
+
+- `onMutate` — `cancelQueries(['tasks'])`, read the current list, stash that single task, then
+  `setQueryData` mapping over the list and replacing only that one entry (for delete, filtering out only
+  that one entry)
+- `onError` — restore only that entry, leaving every other row's in-flight optimistic state intact
+- `onSettled` — `invalidateQueries(['tasks'])` reconciles against the server
+
+The per-row disabling described above prevents double-clicks on a *single* row; it does nothing about
+concurrent mutations across *different* rows, which is what this addresses.
 
 ### Query client configuration — a constraint, not a preference
 
@@ -375,7 +440,7 @@ and **the server carries no CORS middleware at all**.
 | `npm run migrate` | applies pending migrations to Supabase |
 | `npm run dev` | runs server and client concurrently |
 | `npm test` | runs server and client test suites |
-| `npm run build` | compiles `shared` and `server` with `tsc`, builds `client` with Vite |
+| `npm run build` | compiles `server` with `tsc`, builds `client` with Vite (`shared` has no build) |
 
 The server runs under `tsx watch` in development. `.env.example` lists all seven variables; `.env` is
 gitignored. `@tanstack/react-query-devtools` is a dev-only dependency.
@@ -397,8 +462,13 @@ mocked via `vi.mock`. One test file per route module, matching the module isolat
 
 Client tests use Vitest and React Testing Library with `fetch` stubbed, via a `renderWithClient` helper
 that wraps components in a `QueryClientProvider` configured with `retry: false` — without that, tests of
-failure paths hang while TanStack retries. Coverage is deliberately light: the toggle hook's optimistic
-update and its rollback on error, and `TaskItem` rendering plus its disabled state while pending.
+failure paths hang while TanStack retries. Coverage is deliberately light:
+
+- `useToggleTask` — the optimistic update applies immediately, and rolls back on error
+- **two rows toggled concurrently, where the first fails and the second succeeds** — the failing row
+  reverts while the succeeding row keeps its optimistic value. This is the specific regression test for
+  the whole-list-snapshot bug described under "Optimistic updates"; a single-mutation test cannot catch it
+- `TaskItem` — rendering, strikethrough when completed, and the disabled state while its own mutation is pending
 
 ### What the automated tests do not cover
 
@@ -442,3 +512,8 @@ same migration and model.
 | Atomic `NOT completed` update | prevents the lost-update race between concurrent toggles |
 | Mutation retry pinned to 0 | the toggle is not idempotent; a retry would double-flip |
 | `shared` workspace for DTOs | the API contract becomes compiler-enforced on both sides |
+| `shared` is types-only, no build | removes the build-ordering hazard on a fresh `npm install && npm run dev` |
+| Per-entry optimistic rollback | a whole-list snapshot erases concurrent in-flight changes on other rows |
+| DB-side `gen_random_uuid()` | one owner of id generation; hand-inserted rows get valid ids too |
+| `''` description coerced to `null` | an untouched input submits `""`; avoids mixed `NULL`/`''` rows |
+| Exact pins on TypeScript and Vitest | both are freshly released majors; a caret range invites silent breakage |
