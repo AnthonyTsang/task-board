@@ -192,9 +192,14 @@ PORT=3000
   "private": true,
   "type": "module",
   "types": "./src/index.ts",
-  "exports": { ".": { "types": "./src/index.ts" } }
+  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } }
 }
 ```
+
+The `default` condition is required alongside `types`. Every production import from this package is
+`import type` and therefore erased, so the only runtime consumer in the entire repo is the guard test
+below — and `types` is not a runtime resolution condition, so without `default` that import fails on
+the exports map rather than on the thing it means to check.
 
 `shared/src/index.ts`:
 
@@ -243,10 +248,10 @@ export interface ApiErrorBody {
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
-    "migrate": "tsx src/migrate.ts up",
-    "migrate:down": "tsx src/migrate.ts down",
+    "dev": "tsx --env-file-if-exists=../.env watch src/server.ts",
+    "start": "node --env-file-if-exists=../.env dist/server.js",
+    "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts up",
+    "migrate:down": "tsx --env-file-if-exists=../.env src/migrate.ts down",
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
@@ -266,6 +271,13 @@ export interface ApiErrorBody {
   }
 }
 ```
+
+**Why `--env-file-if-exists` and why `../.env`.** `loadEnv()` reads `process.env`, and nothing
+populates it on its own — tsx does not read `.env` files. These scripts run with cwd `server/`, so the
+path to the root `.env` is `../.env`. The `-if-exists` variant is deliberate: plain `--env-file` aborts
+with `not found` when the file is absent, which would replace Task 9's clear "Invalid environment
+configuration" message with an unhelpful Node error. Both behaviours were verified against Node 24.12
+and tsx 4.23.13 before this plan was written.
 
 `server/tsconfig.json` — typechecks source *and* tests, emits nothing:
 
@@ -382,6 +394,18 @@ describe('shared contract types', () => {
     expect(Object.keys(mod)).toHaveLength(0);
   });
 
+  it('the shared package declares no main and builds no dist', async () => {
+    // The real constraint, checked structurally rather than through a runtime
+    // import: a `main` field or a dist/ directory means the package now needs
+    // building before anything can consume it.
+    const { readFileSync, existsSync } = await import('node:fs');
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+    expect(pkg.main).toBeUndefined();
+    expect(pkg.scripts?.build).toBeUndefined();
+    expect(existsSync(new URL('../dist', import.meta.url))).toBe(false);
+  });
+
   it('ApiErrorCode has exactly the three documented members', () => {
     const codes: ApiErrorCode[] = ['VALIDATION_ERROR', 'NOT_FOUND', 'INTERNAL_ERROR'];
     expect(codes).toHaveLength(3);
@@ -407,7 +431,7 @@ Run: `npm install` at the root. npm links the three workspaces.
 - [ ] **Step 7: Run the tests and the typecheck to verify they pass**
 
 Run: `npm test`
-Expected: PASS — 4 tests in the `shared` project.
+Expected: PASS — 5 tests in the `shared` project.
 
 Run: `npx tsc -p shared --noEmit`
 Expected: PASS with no errors.
@@ -1614,7 +1638,7 @@ describe('PATCH /api/tasks/:id/toggle', () => {
     expect(findAll).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledTimes(1);
 
-    const [values, options] = update.mock.calls[0];
+    const [values, options] = update.mock.calls[0]!;
     expect(String(values.completed.val ?? values.completed)).toContain('NOT completed');
     expect(options).toMatchObject({ where: { id: ID }, returning: true });
   });
@@ -1949,12 +1973,37 @@ It must **not** print a stack trace or hang trying to connect.
 Run: `npm run dev -w server`
 Expected: the same clear message, exit code 1.
 
-- [ ] **Step 4: Verify no import-time side effects leaked in**
+- [ ] **Step 4: Verify the success branch — that a present `.env` is actually read**
+
+Testing only the missing-env path above would pass whether or not `.env` loading works at all. This
+step distinguishes the two, and still needs no real credentials.
+
+Create a root `.env` with syntactically valid but fake values:
+
+```
+DB_HOST=nowhere.invalid
+DB_PORT=5432
+DB_NAME=postgres
+DB_USER=postgres
+DB_PASSWORD=fake
+```
+
+Run: `npm run migrate`
+Expected: a **connection** error mentioning `nowhere.invalid` — `getaddrinfo ENOTFOUND` or similar.
+
+That failure is the pass condition: it proves the variables were loaded and the code got as far as
+dialling the database. If instead you see "Invalid environment configuration", the `.env` is not being
+read — check that the script carries `--env-file-if-exists=../.env` and that the path resolves from
+`server/`, which is the cwd `npm run -w server` uses.
+
+Delete this scratch `.env` afterwards, or replace it with real Supabase values in Task 16.
+
+- [ ] **Step 5: Verify no import-time side effects leaked in**
 
 Run: `npx vitest run --project server`
 Expected: PASS — 52 tests, unchanged. If adding these entrypoints broke tests, something now validates the environment at import time; find it and move it inside a function.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/src/server.ts server/src/migrate.ts
@@ -2185,7 +2234,7 @@ describe('tasksApi', () => {
     const fetchMock = stubFetch(TASK, { status: 201 });
     await expect(createTask({ title: 'Buy milk' })).resolves.toEqual(TASK);
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('/api/tasks');
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
@@ -2196,7 +2245,7 @@ describe('tasksApi', () => {
     const fetchMock = stubFetch({ ...TASK, completed: true });
     await expect(toggleTask(TASK.id)).resolves.toMatchObject({ completed: true });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`/api/tasks/${TASK.id}/toggle`);
     expect(init.method).toBe('PATCH');
     expect(init.body).toBeUndefined();
@@ -2613,6 +2662,13 @@ describe('useToggleTask', () => {
   it('rolling back a failed row does not erase a concurrent row still in flight', async () => {
     // REGRESSION TEST. A whole-list snapshot restore would revert B along with A,
     // because B's optimistic change landed after A's snapshot was taken.
+    //
+    // Note on calling mutate() twice on one hook instance: each call builds its own
+    // Mutation carrying its own onMutate/onError context, which is exactly the
+    // behaviour under test. `result.current` only ever tracks the LATEST mutation,
+    // so it will not reflect A's failure — that is expected, not a bug. Assertions
+    // therefore read the cache, never result.current. Do not "fix" this by
+    // rendering two hook instances; that would stop testing shared-cache contention.
     let failA!: (e: unknown) => void;
     let passB!: (v: TaskDto) => void;
 
@@ -3363,7 +3419,7 @@ describe('App scaffold', () => {
 - [ ] **Step 7: Run the whole suite and the typecheck**
 
 Run: `npm test`
-Expected: PASS — 90 tests across the three projects (4 shared, 52 server, 34 client).
+Expected: PASS — 91 tests across the three projects (5 shared, 52 server, 34 client).
 
 Run: `npm run typecheck`
 Expected: PASS with no errors.
@@ -3402,8 +3458,9 @@ React 19 + TanStack Query client.
 ## Setup
 
 1. Create a Postgres database in Supabase.
-2. Copy `.env.example` to `.env` and fill in the five `DB_*` variables from your
-   Supabase project's connection settings.
+2. Copy `.env.example` to `.env` **at the repository root** and fill in the five
+   `DB_*` variables from your Supabase project's connection settings. The server
+   scripts load it via `--env-file-if-exists=../.env`, relative to `server/`.
 3. Install and migrate:
 
 ```bash
@@ -3507,7 +3564,7 @@ git commit -m "docs: add README and record manual verification"
 
 After Task 16, all of the following hold:
 
-- `npm test` passes — 90 tests: 4 shared, 52 server, 34 client
+- `npm test` passes — 91 tests: 5 shared, 52 server, 34 client
 - `npm run typecheck` passes with no errors
 - `npm run build` produces `server/dist` and `client/dist`; `shared` has no `dist`
 - All nine manual checklist steps from the spec pass against real Supabase
