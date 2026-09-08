@@ -361,32 +361,8 @@ Client code uses `moduleResolution: "bundler"`, so **client imports are extensio
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import type { TaskDto, ApiErrorBody, ApiErrorCode } from '@taskboard/shared';
 
-describe('shared contract types', () => {
-  it('TaskDto accepts a well-formed task with a null description', () => {
-    const task: TaskDto = {
-      id: '9c8f6b3e-1a2d-4c5f-8e7a-0b1c2d3e4f5a',
-      title: 'Buy milk',
-      description: null,
-      completed: false,
-      createdAt: '2026-09-07T10:00:00.000Z',
-      updatedAt: '2026-09-07T10:00:00.000Z',
-    };
-    expect(task.completed).toBe(false);
-  });
-
-  it('ApiErrorBody carries a code, a message, and optional details', () => {
-    const body: ApiErrorBody = {
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'title must be 1-200 characters',
-        details: [{ path: 'title', message: 'Too small' }],
-      },
-    };
-    expect(body.error.details).toHaveLength(1);
-  });
-
+describe('shared package structure', () => {
   it('the shared package emits no runtime value', async () => {
     // Global constraint: shared must stay types-only. A const, enum, or function
     // here would give the package runtime output and break a fresh install.
@@ -405,13 +381,15 @@ describe('shared contract types', () => {
     expect(pkg.scripts?.build).toBeUndefined();
     expect(existsSync(new URL('../dist', import.meta.url))).toBe(false);
   });
-
-  it('ApiErrorCode has exactly the three documented members', () => {
-    const codes: ApiErrorCode[] = ['VALIDATION_ERROR', 'NOT_FOUND', 'INTERNAL_ERROR'];
-    expect(codes).toHaveLength(3);
-  });
 });
 ```
+
+**The contract types themselves get no runtime tests.** Assertions like
+`const t: TaskDto = {…}; expect(t.completed).toBe(false)` are tautological at runtime — they only
+check a value the test just wrote. What actually guards the contract is that `server` and `client`
+both compile against these types, so renaming or dropping a field fails `npm run typecheck`. That is
+strictly stronger than any runtime assertion here, and it is why this file tests only the package's
+*structure*, which typechecking cannot see.
 
 Add a third project to `vitest.config.ts` so this file runs:
 
@@ -431,7 +409,7 @@ Run: `npm install` at the root. npm links the three workspaces.
 - [ ] **Step 7: Run the tests and the typecheck to verify they pass**
 
 Run: `npm test`
-Expected: PASS — 5 tests in the `shared` project.
+Expected: PASS — 2 tests in the `shared` project.
 
 Run: `npx tsc -p shared --noEmit`
 Expected: PASS with no errors.
@@ -3419,7 +3397,7 @@ describe('App scaffold', () => {
 - [ ] **Step 7: Run the whole suite and the typecheck**
 
 Run: `npm test`
-Expected: PASS — 91 tests across the three projects (5 shared, 52 server, 34 client).
+Expected: PASS — 88 tests across the three projects (2 shared, 52 server, 34 client).
 
 Run: `npm run typecheck`
 Expected: PASS with no errors.
@@ -3564,7 +3542,7 @@ git commit -m "docs: add README and record manual verification"
 
 After Task 16, all of the following hold:
 
-- `npm test` passes — 91 tests: 5 shared, 52 server, 34 client
+- `npm test` passes — 88 tests: 2 shared, 52 server, 34 client
 - `npm run typecheck` passes with no errors
 - `npm run build` produces `server/dist` and `client/dist`; `shared` has no `dist`
 - All nine manual checklist steps from the spec pass against real Supabase
