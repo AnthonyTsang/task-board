@@ -5,7 +5,6 @@ import { taskKeys } from '../api/queryKeys';
 
 interface DeleteContext {
   previous: TaskDto | undefined;
-  index: number;
 }
 
 /**
@@ -34,14 +33,13 @@ export function useDeleteTask(): UseMutationResult<void, ApiError, string, Delet
       await queryClient.cancelQueries({ queryKey: taskKeys.all });
 
       const list = queryClient.getQueryData<TaskDto[]>(taskKeys.all) ?? [];
-      const index = list.findIndex((task) => task.id === id);
-      const previous = index >= 0 ? list[index] : undefined;
+      const previous = list.find((task) => task.id === id);
 
       queryClient.setQueryData<TaskDto[]>(taskKeys.all, (current) =>
         current?.filter((task) => task.id !== id),
       );
 
-      return { previous, index };
+      return { previous };
     },
 
     onError: (_err, _id, context) => {

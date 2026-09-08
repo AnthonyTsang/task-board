@@ -34,7 +34,8 @@ export function TaskForm() {
           onChange={(e) => { setTitle(e.target.value); }}
           placeholder="What needs doing?"
           maxLength={200}
-          className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-100"
+          disabled={create.isPending}
+          className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-100"
         />
         <button
           type="submit"
@@ -52,7 +53,8 @@ export function TaskForm() {
         placeholder="Description (optional)"
         rows={2}
         maxLength={2000}
-        className="w-full resize-y rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-100"
+        disabled={create.isPending}
+        className="w-full resize-y rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-100"
       />
     </form>
   );

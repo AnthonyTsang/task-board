@@ -98,4 +98,16 @@ describe('tasksApi', () => {
 
     await expect(listTasks()).rejects.toMatchObject({ status: 500, code: 'INTERNAL_ERROR' });
   });
+
+  it('wraps a network-level fetch rejection in an ApiError instead of propagating the raw TypeError', async () => {
+    // When the API is unreachable, fetch() rejects with a TypeError ("Failed to
+    // fetch") rather than resolving with a Response — there is no HTTP status.
+    // Every hook declares its error type as ApiError, so this must not leak a
+    // raw TypeError with no `.code`.
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listTasks()).rejects.toBeInstanceOf(ApiError);
+    await expect(listTasks()).rejects.toMatchObject({ status: 0, code: 'INTERNAL_ERROR' });
+  });
 });

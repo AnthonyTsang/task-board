@@ -32,7 +32,18 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
  * receive either data or an ApiError — never a Response.
  */
 async function request<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch {
+    // fetch() rejects (a TypeError, e.g. "Failed to fetch") when the network
+    // request never produces an HTTP response at all — the API is unreachable,
+    // DNS failed, CORS blocked it, etc. Every caller's declared error type is
+    // ApiError, so that rejection must not leak past this boundary raw.
+    // status: 0 signals "no HTTP response was received," distinct from any
+    // real status code.
+    throw new ApiError(0, 'INTERNAL_ERROR', 'Unable to reach the server. Check your connection and try again.');
+  }
 
   if (!response.ok) {
     let body: unknown;

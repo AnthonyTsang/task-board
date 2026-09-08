@@ -85,6 +85,20 @@ describe('App', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('disables the title and description inputs while a create is pending, preventing a double submit', async () => {
+    vi.spyOn(api, 'listTasks').mockResolvedValue([]);
+    vi.spyOn(api, 'createTask').mockReturnValue(new Promise(() => {})); // never settles
+    renderWithClient(<App />);
+
+    const input = await screen.findByLabelText(/task title/i);
+    const description = screen.getByLabelText(/description/i);
+    await userEvent.type(input, 'Buy milk');
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() => { expect(input).toBeDisabled(); });
+    expect(description).toBeDisabled();
+  });
+
   it('does not submit a whitespace-only title', async () => {
     vi.spyOn(api, 'listTasks').mockResolvedValue([]);
     const create = vi.spyOn(api, 'createTask');
@@ -123,6 +137,32 @@ describe('App', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces a toggle failure in the row and rolls back the optimistic flip', async () => {
+    vi.spyOn(api, 'listTasks').mockResolvedValue([ACTIVE]);
+    vi.spyOn(api, 'toggleTask').mockRejectedValue(new api.ApiError(500, 'INTERNAL_ERROR', 'Toggle failed'));
+    renderWithClient(<App />);
+    await screen.findByText('Buy milk');
+
+    const checkbox = screen.getByRole('checkbox', { name: /mark buy milk as done/i });
+    await userEvent.click(checkbox);
+
+    // The optimistic flip lands, then rolls back once the rejection resolves.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Toggle failed');
+    await waitFor(() => { expect(checkbox).not.toBeChecked(); });
+  });
+
+  it('surfaces a delete failure in the row and restores the removed task', async () => {
+    vi.spyOn(api, 'listTasks').mockResolvedValue([ACTIVE]);
+    vi.spyOn(api, 'deleteTask').mockRejectedValue(new api.ApiError(500, 'INTERNAL_ERROR', 'Delete failed'));
+    renderWithClient(<App />);
+    await screen.findByText('Buy milk');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Buy milk' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Delete failed');
+    await waitFor(() => { expect(screen.getByText('Buy milk')).toBeInTheDocument(); });
   });
 
   it('isolates per-row pending state: row A disabled does not disable row B', async () => {
