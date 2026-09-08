@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: oklch(0.98 0.005 260);
+  --color-surface-raised: oklch(1 0 0);
+}
