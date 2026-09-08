@@ -1643,6 +1643,10 @@ describe('PATCH /api/tasks/:id/toggle', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+    // Pins the route's own 404, not the app's catch-all, which emits the same
+    // status and code. Without these, removing the mount leaves this test green.
+    expect(res.body.error.message).toContain(ID);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 for a non-UUID id, never letting it reach Postgres', async () => {
@@ -1781,6 +1785,10 @@ describe('DELETE /api/tasks/:id', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+    // Pins the route's own 404, not the app's catch-all, which emits the same
+    // status and code. Without these, removing the mount leaves this test green.
+    expect(res.body.error.message).toContain(ID);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 for a non-UUID id', async () => {
