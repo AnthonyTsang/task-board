@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "types": "./src/index.ts",
-  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } }
+  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
 }
