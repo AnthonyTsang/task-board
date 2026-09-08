@@ -159,16 +159,25 @@ The application accepts these environment variables and creates no database reso
 | `DB_USER` | yes | — | database user |
 | `DB_PASSWORD` | yes | — | database password |
 | `PORT` | no | `3000` | port the API server listens on |
+| `DB_SSL` | no | `require` | `require` or `disable`; `disable` is for the local container only |
 | `DB_SSL_CA` | no | unset | path to a CA certificate; enables full TLS verification |
 
 `config/env.ts` validates all of these at startup with zod. A missing or malformed variable exits the
 process immediately with a message naming the offending variable, rather than surfacing later as a
 connection failure mid-request.
 
-### TLS to Supabase — a deliberate weakening
+### TLS — three modes, and a deliberate weakening
+
+`DB_SSL` and `DB_SSL_CA` together select one of three behaviours:
+
+| `DB_SSL` | `DB_SSL_CA` | Result |
+|---|---|---|
+| `require` (default) | set | encrypted, server identity **verified** against the supplied CA |
+| `require` (default) | unset | encrypted, identity **not** verified — the Supabase default |
+| `disable` | — | no TLS at all — the local Postgres container only |
 
 Supabase requires SSL, and its connection pooler presents a certificate that is not in Node's default
-trust store. The default configuration is therefore:
+trust store. So with no CA supplied the configuration is:
 
 ```ts
 dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
@@ -179,6 +188,15 @@ open to a man-in-the-middle. It is the widely used Supabase configuration and is
 the app works without extra setup. Setting `DB_SSL_CA` to the path of Supabase's downloadable CA
 certificate switches `rejectUnauthorized` to `true` and enables full verification. This tradeoff is
 recorded here rather than left implicit in a config file.
+
+**`DB_SSL` defaults to `require`, and that default is load-bearing.** A stock Postgres container does
+not speak TLS, so local development needs `disable` — but a forgotten `DB_SSL` in production must
+never silently drop encryption. It is a zod enum rather than a boolean so that `DB_SSL=false` or
+`DB_SSL=off` is rejected loudly instead of falling through to a default nobody intended, and both the
+default and the rejection are pinned by tests in `server/test/env.test.ts`.
+
+When `disable` is selected, `dialectOptions.ssl` is **omitted entirely** rather than set to `false` —
+absent is unambiguous and will not shift meaning under a `pg` driver upgrade.
 
 ## Data model
 
@@ -487,7 +505,14 @@ Postgres. The `underscored` camelCase-to-snake_case mapping is likewise unverifi
 ### Manual verification checklist
 
 Run once against the real Supabase database after implementation, and after any change to the model,
-the migration, or the toggle query:
+the migration, or the toggle query.
+
+**The local Postgres container is a rehearsal, not a substitute.** Running this checklist against
+`docker compose up -d` catches most of what it is designed to catch — it did in fact catch nothing
+new, because the whole list passed there first — but two things exist only on Supabase and are
+therefore only ever exercised by the real run: the `rejectUnauthorized: false` pooler TLS path
+(local runs with `DB_SSL=disable`), and the hosted schema itself as seen in the Supabase table
+editor. Rehearse locally, then run it for real.
 
 1. `npm run migrate` completes; the `tasks` and `SequelizeMeta` tables appear in the Supabase table editor
 2. Column names in Supabase are snake_case (`created_at`, not `createdAt`)

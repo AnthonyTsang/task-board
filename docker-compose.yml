@@ -1,0 +1,41 @@
+# Local development database.
+#
+# Only Postgres runs in a container. The API and the Vite dev server stay on the
+# host so `npm run dev` keeps hot reload — containerising them would trade that
+# away for nothing.
+#
+#   docker compose up -d      start the database
+#   npm run migrate           apply migrations (waits for the healthcheck)
+#   npm run dev               run the app against it
+#   docker compose down       stop, keeping data
+#   docker compose down -v    stop and DELETE all local data
+services:
+  db:
+    # Match your Supabase project's major version if you know it — override with
+    # POSTGRES_IMAGE. gen_random_uuid(), which the migration depends on, is core
+    # from Postgres 13 onward and needs no CREATE EXTENSION.
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    container_name: bmo-task-board-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      # Deliberately NOT 5432. A non-default host port cannot collide with a
+      # local Postgres install, and makes it obvious when a .env still points at
+      # Supabase. 54322 is the port the Supabase CLI uses for the same purpose.
+      - '54322:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # Without this, `docker compose up -d && npm run migrate` races the
+      # database's own initialisation and fails on a closed connection.
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+volumes:
+  db-data:

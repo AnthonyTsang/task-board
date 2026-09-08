@@ -34,4 +34,27 @@ describe('loadEnv', () => {
     // Guards against a module-level `process.env` read sneaking back in.
     expect(() => loadEnv({})).toThrowError();
   });
+
+  describe('DB_SSL', () => {
+    it('defaults to require when absent', () => {
+      // The load-bearing case: a forgotten DB_SSL in production must not
+      // silently drop TLS. This is the invariant most likely to regress.
+      expect(loadEnv(complete).dbSsl).toBe('require');
+    });
+
+    it('accepts disable, for a local Postgres container that does not speak TLS', () => {
+      expect(loadEnv({ ...complete, DB_SSL: 'disable' }).dbSsl).toBe('disable');
+    });
+
+    it('accepts an explicit require', () => {
+      expect(loadEnv({ ...complete, DB_SSL: 'require' }).dbSsl).toBe('require');
+    });
+
+    it.each(['false', 'off', 'no', '0', 'DISABLE', ''])(
+      'rejects %o rather than falling through to a default nobody intended',
+      (value) => {
+        expect(() => loadEnv({ ...complete, DB_SSL: value })).toThrowError(/DB_SSL/);
+      },
+    );
+  });
 });
