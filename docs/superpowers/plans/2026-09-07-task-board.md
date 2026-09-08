@@ -178,10 +178,15 @@ PORT=3000
 ```json
 {
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true },
+  "compilerOptions": { "noEmit": true, "types": ["node"] },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
 ```
+
+`"types": ["node"]` is required, not optional. Without it TypeScript 7 implicitly pulls in every
+`@types/*` package hoisted to the monorepo root `node_modules` — `argparse`, `express`, `chai` and the
+rest — and fails on the ones it cannot resolve. The guard test also imports `node:fs`, which needs the
+node types present. `server` and `client` set their own `types` arrays for the same reason.
 
 `shared/package.json`. Note there is deliberately **no `main`** and **no `build` script**:
 
