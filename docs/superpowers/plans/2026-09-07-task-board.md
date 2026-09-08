@@ -253,7 +253,7 @@ export interface ApiErrorBody {
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx --env-file-if-exists=../.env watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=../.env src/server.ts",
     "start": "node --env-file-if-exists=../.env dist/server.js",
     "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts up",
     "migrate:down": "tsx --env-file-if-exists=../.env src/migrate.ts down",
@@ -276,6 +276,11 @@ export interface ApiErrorBody {
   }
 }
 ```
+
+**`watch` must come immediately after `tsx`, before any flags.** `tsx --env-file-if-exists=… watch f.ts`
+makes tsx treat `watch` as the entry filename and fail with `ERR_MODULE_NOT_FOUND`. Verified against
+tsx 4.23.13. Only `dev` uses `watch`; `migrate`/`migrate:down` pass no subcommand and `start` uses
+`node`, so their flag placement is already correct.
 
 **Why `--env-file-if-exists` and why `../.env`.** `loadEnv()` reads `process.env`, and nothing
 populates it on its own — tsx does not read `.env` files. These scripts run with cwd `server/`, so the
@@ -1902,8 +1907,18 @@ async function main(): Promise<void> {
   const taskModel = initTaskModel(sequelize);
   const app = createApp(taskModel);
 
-  app.listen(env.port, () => {
+  const server = app.listen(env.port, () => {
     console.log(`API listening on http://localhost:${env.port}`);
+  });
+
+  // listen() doesn't throw synchronously on a bind failure — it emits 'error' on
+  // the returned server. Without this handler that becomes an uncaught exception
+  // and dumps a stack trace instead of the clean message every other failure mode
+  // here produces. Note both env branches fail before listen() is reached, so no
+  // amount of testing those paths surfaces this one.
+  server.on('error', (err: Error) => {
+    console.error(`Failed to bind port ${env.port}: ${err.message}`);
+    process.exit(1);
   });
 }
 
