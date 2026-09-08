@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import { createTaskBody, taskIdParam, parseOrThrow, toDetails } from '../src/lib/validate.js';
 import { HttpError } from '../src/lib/HttpError.js';
 
@@ -80,13 +81,24 @@ describe('parseOrThrow', () => {
 });
 
 describe('toDetails', () => {
-  it('joins nested paths with dots', () => {
+  it('maps a flat path to its field name', () => {
     const result = createTaskBody.safeParse({ title: '' });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(toDetails(result.error)).toEqual([
         { path: 'title', message: expect.stringContaining('Too small') },
       ]);
+    }
+  });
+
+  it('joins nested paths with dots', () => {
+    const nestedSchema = z.object({ a: z.object({ b: z.string() }) });
+    const result = nestedSchema.safeParse({ a: { b: 1 } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const details = toDetails(result.error);
+      expect(details).toHaveLength(1);
+      expect(details[0]!.path).toBe('a.b');
     }
   });
 });
