@@ -196,12 +196,19 @@ Supabase table editor) while the TypeScript model and the JSON API use camelCase
 
 `created_at` is indexed because the list endpoint always orders by it.
 
-**The database owns id generation.** The migration sets the column default to `gen_random_uuid()`; the
-model declares `id` as `CreationOptional<string>` and sets **no** `defaultValue`, so inserts omit the
-column and Sequelize reads the generated value back via Postgres `RETURNING`. Stated explicitly because
-app-side generation (`DataTypes.UUIDV4`) is the equally common alternative, and having both configured
-is a silent source of confusion. The benefit of the DB-side default: rows inserted by hand in the
-Supabase SQL editor get valid ids too.
+**The database owns id generation.** The migration sets the column default to `gen_random_uuid()`, and the
+model declares `id` as `CreationOptional<string>` with `defaultValue: literal('gen_random_uuid()')`. That
+`literal(...)` is load-bearing, not decorative: a bare `primaryKey: true` with no `defaultValue` does
+**not** mean "no default on the model" — Sequelize still seeds the attribute to `null` on `build()` and
+binds that explicit `NULL` in the generated `INSERT`. In Postgres an explicit `NULL` *suppresses* the
+column default, so `id uuid NOT NULL DEFAULT gen_random_uuid()` never fires its default and every insert
+raises `23502 null value in column "id" violates not-null constraint`. Declaring the model-side default as
+the literal SQL expression `gen_random_uuid()` makes Sequelize render the function call inline in the
+`VALUES` clause instead of binding a value, so the database still owns id generation — one owner, just one
+that the model has to invoke explicitly rather than one it can silently omit. Stated explicitly because
+app-side generation (`DataTypes.UUIDV4`) is the equally common alternative, and having both configured is
+a silent source of confusion. The benefit of the DB-side default: rows inserted by hand in the Supabase SQL
+editor get valid ids too.
 
 Model definition uses Sequelize 6's inference generics:
 

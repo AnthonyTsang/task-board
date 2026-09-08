@@ -1,5 +1,5 @@
 import {
-  DataTypes, Model, type Sequelize,
+  DataTypes, Model, literal, type Sequelize,
   type InferAttributes, type InferCreationAttributes, type CreationOptional,
 } from 'sequelize';
 import type { TaskDto } from '@taskboard/shared';
@@ -24,9 +24,17 @@ export type TaskModel = typeof Task;
 export function initTaskModel(sequelize: Sequelize): TaskModel {
   Task.init(
     {
-      // No defaultValue here on purpose — the migration's gen_random_uuid() owns
-      // id generation, and Postgres returns the value via RETURNING.
-      id: { type: DataTypes.UUID, primaryKey: true },
+      // A bare `primaryKey: true` with no defaultValue is NOT "no default on the
+      // model": Sequelize still seeds the attribute to `null` on build() and binds
+      // that explicit NULL in the INSERT. In Postgres an explicit NULL suppresses
+      // the column default, so the migration's `DEFAULT gen_random_uuid()` never
+      // fires and every insert violates the NOT NULL constraint. Declaring the
+      // default as a literal SQL expression makes Sequelize render the function
+      // call inline instead of binding a value — the database still owns id
+      // generation (one owner), it just has to be told to call its own default
+      // explicitly. Do not switch to DataTypes.UUIDV4; that moves generation into
+      // the app and gives id generation two owners.
+      id: { type: DataTypes.UUID, primaryKey: true, defaultValue: literal('gen_random_uuid()') },
       title: { type: DataTypes.TEXT, allowNull: false },
       description: { type: DataTypes.TEXT, allowNull: true },
       completed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
