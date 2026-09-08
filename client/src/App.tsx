@@ -38,7 +38,7 @@ export default function App() {
 
       {isPending ? (
         <p className="px-1 py-8 text-center text-sm text-neutral-500">Loading…</p>
-      ) : visible.length === 0 ? (
+      ) : isError ? null : visible.length === 0 ? (
         <EmptyState filter={filter} />
       ) : (
         <TaskList tasks={visible} />

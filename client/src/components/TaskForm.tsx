@@ -29,7 +29,6 @@ export function TaskForm() {
 
       <div className="flex gap-2">
         <input
-          id="task-title"
           aria-label="Task title"
           value={title}
           onChange={(e) => { setTitle(e.target.value); }}
@@ -47,7 +46,6 @@ export function TaskForm() {
       </div>
 
       <textarea
-        id="task-description"
         aria-label="Description (optional)"
         value={description}
         onChange={(e) => { setDescription(e.target.value); }}

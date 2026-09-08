@@ -85,11 +85,44 @@ describe('App', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('does not submit a whitespace-only title', async () => {
+    vi.spyOn(api, 'listTasks').mockResolvedValue([]);
+    const create = vi.spyOn(api, 'createTask');
+    renderWithClient(<App />);
+
+    const input = await screen.findByLabelText(/task title/i);
+    await userEvent.type(input, '   ');
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('leaves typed text intact when submission fails', async () => {
+    vi.spyOn(api, 'listTasks').mockResolvedValue([]);
+    vi.spyOn(api, 'createTask').mockRejectedValue(new api.ApiError(500, 'INTERNAL_ERROR', 'Internal server error'));
+    renderWithClient(<App />);
+
+    const input = await screen.findByLabelText(/task title/i);
+    await userEvent.type(input, 'Buy milk');
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await screen.findByRole('alert');
+    expect(input).toHaveValue('Buy milk');
+  });
+
   it('surfaces a query failure in the error banner', async () => {
     vi.spyOn(api, 'listTasks').mockRejectedValue(new api.ApiError(500, 'INTERNAL_ERROR', 'Internal server error'));
     renderWithClient(<App />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Internal server error');
+  });
+
+  it('does not show contradictory empty-state copy when the query fails', async () => {
+    vi.spyOn(api, 'listTasks').mockRejectedValue(new api.ApiError(500, 'INTERNAL_ERROR', 'Internal server error'));
+    renderWithClient(<App />);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
   });
 
   it('isolates per-row pending state: row A disabled does not disable row B', async () => {
