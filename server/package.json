@@ -1,0 +1,28 @@
+{
+  "name": "@taskboard/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=../.env watch src/server.ts",
+    "start": "node --env-file-if-exists=../.env dist/server.js",
+    "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts up",
+    "migrate:down": "tsx --env-file-if-exists=../.env src/migrate.ts down",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@taskboard/shared": "*",
+    "express": "^5.2.1",
+    "pg": "^8.23.0",
+    "sequelize": "^6.37.8",
+    "umzug": "^3.8.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/supertest": "^6.0.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.13"
+  }
+}
