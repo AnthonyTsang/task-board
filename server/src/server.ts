@@ -13,8 +13,17 @@ async function main(): Promise<void> {
   const taskModel = initTaskModel(sequelize);
   const app = createApp(taskModel);
 
-  app.listen(env.port, () => {
+  const server = app.listen(env.port, () => {
     console.log(`API listening on http://localhost:${env.port}`);
+  });
+
+  // listen() doesn't throw synchronously on a bind failure — it emits 'error'
+  // on the returned server. Without this handler that becomes an uncaught
+  // exception and dumps a stack trace instead of the clean message every
+  // other failure mode in this file produces.
+  server.on('error', (err: Error) => {
+    console.error(`Failed to bind port ${env.port}: ${err.message}`);
+    process.exit(1);
   });
 }
 
