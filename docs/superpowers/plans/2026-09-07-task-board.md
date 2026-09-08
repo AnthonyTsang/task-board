@@ -17,6 +17,9 @@ Every task's requirements implicitly include this section. These are the decisio
 - **TypeScript is pinned to exactly `7.0.2`** and **Vitest to exactly `5.0.0`** — no caret, no tilde. Both are freshly released majors.
 - **All three workspaces set `"type": "module"`.** Vite 8 requires ESM on the client; stating it everywhere stops the `shared` import resolving differently per side.
 - **`shared` must never gain a runtime value.** No `const` objects, no enums, no functions — types and interfaces only. It has `"types"` but no `"main"` and no build script. Every import from it is `import type`. Adding a runtime value silently breaks a fresh `npm install && npm run dev`.
+- **Every `mutationFn` is arrow-wrapped, never passed by reference.** TanStack Query 5 calls it as
+  `mutationFn(variables, { client })` — two arguments. Passing `createTask`/`toggleTask`/`deleteTask`
+  directly makes spies record both, so `toHaveBeenCalledWith(oneArg)` fails. Verified against 5.102.8.
 - **Mutation `retry` stays `0`.** The toggle endpoint is not idempotent; an automatic retry flips `completed` twice and lands on the wrong state.
 - **`sequelize.sync()` appears nowhere.** Schema is owned by Umzug migrations. The app never issues DDL.
 - **No `tailwind.config.js` and no `postcss.config.js`.** Tailwind 4 is CSS-first: the `@tailwindcss/vite` plugin plus `@import "tailwindcss";`. Those files are Tailwind 3 artifacts and their presence breaks the v4 pipeline.
@@ -2570,7 +2573,10 @@ export function useCreateTask(): UseMutationResult<TaskDto, ApiError, CreateTask
   const queryClient = useQueryClient();
 
   return useMutation<TaskDto, ApiError, CreateTaskInput>({
-    mutationFn: createTask,
+    // Arrow-wrapped, not passed by reference: TanStack Query 5 invokes
+    // mutationFn(variables, { client }) with TWO arguments, which would leak the
+    // second into spy assertions like toHaveBeenCalledWith({ title }).
+    mutationFn: (input) => createTask(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: taskKeys.all });
     },
@@ -2779,7 +2785,8 @@ export function useToggleTask(): UseMutationResult<TaskDto, ApiError, string, To
   const queryClient = useQueryClient();
 
   return useMutation<TaskDto, ApiError, string, ToggleContext>({
-    mutationFn: toggleTask,
+    // Arrow-wrapped — see useCreateTask: mutationFn receives (variables, { client }).
+    mutationFn: (id) => toggleTask(id),
 
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: taskKeys.all });
@@ -2835,7 +2842,8 @@ export function useDeleteTask(): UseMutationResult<void, ApiError, string, Delet
   const queryClient = useQueryClient();
 
   return useMutation<void, ApiError, string, DeleteContext>({
-    mutationFn: deleteTask,
+    // Arrow-wrapped — see useCreateTask: mutationFn receives (variables, { client }).
+    mutationFn: (id) => deleteTask(id),
 
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: taskKeys.all });
