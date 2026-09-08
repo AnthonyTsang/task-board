@@ -22,6 +22,10 @@ describe('DELETE /api/tasks/:id', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+    // These assertions ensure the handler actually ran (not the catch-all).
+    // The app's catch-all also returns 404 with code NOT_FOUND, but never includes the task id in its message.
+    expect(res.body.error.message).toContain(ID);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 for a non-UUID id', async () => {
