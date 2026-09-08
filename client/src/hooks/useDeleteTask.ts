@@ -9,9 +9,19 @@ interface DeleteContext {
 }
 
 /**
- * Optimistically removes the row, reinserting ONLY that row at its original
- * position on error. Same reasoning as useToggleTask: never restore a
- * whole-list snapshot, or concurrent in-flight changes get erased.
+ * Optimistically removes the row, reinserting ONLY that row on error. Same
+ * reasoning as useToggleTask: never restore a whole-list snapshot, or
+ * concurrent in-flight changes get erased.
+ *
+ * Reinsertion is NOT by the index captured at onMutate time. That index goes
+ * stale the instant another in-flight delete removes a row ahead of it — it's
+ * relative to an already-shrunk list, not the list's true original order. Two
+ * concurrent deletes that both fail can then land the rolled-back row in the
+ * wrong slot even though nothing was lost (see the "preserves row order"
+ * regression test). Instead, the rolled-back row is reinserted at the
+ * position that preserves createdAt-descending order — the server's actual
+ * ordering invariant (newest first) — which is stable no matter what else
+ * moved in the meantime.
  */
 export function useDeleteTask(): UseMutationResult<void, ApiError, string, DeleteContext> {
   const queryClient = useQueryClient();
@@ -35,11 +45,15 @@ export function useDeleteTask(): UseMutationResult<void, ApiError, string, Delet
     },
 
     onError: (_err, _id, context) => {
-      if (!context?.previous || context.index < 0) return;
+      const { previous } = context ?? {};
+      if (!previous) return;
 
       queryClient.setQueryData<TaskDto[]>(taskKeys.all, (current) => {
         const next = [...(current ?? [])];
-        next.splice(context.index, 0, context.previous!);
+        // Find the first row older than `previous` (createdAt DESC order) and
+        // insert immediately before it; if none is older, it belongs at the end.
+        const insertAt = next.findIndex((task) => task.createdAt < previous.createdAt);
+        next.splice(insertAt < 0 ? next.length : insertAt, 0, previous);
         return next;
       });
     },

@@ -11,9 +11,19 @@ import type { TaskDto } from '@taskboard/shared';
 const A: TaskDto = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   title: 'Task A', description: null, completed: false,
+  createdAt: '2026-09-07T10:00:02.000Z', updatedAt: '2026-09-07T10:00:02.000Z',
+};
+const B: TaskDto = {
+  ...A, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Task B',
+  createdAt: '2026-09-07T10:00:01.000Z', updatedAt: '2026-09-07T10:00:01.000Z',
+};
+// C has an id sorting after B lexically only by coincidence of the alphabet used
+// here; what matters is createdAt, which is strictly older than both A and B —
+// the server's newest-first (createdAt DESC) ordering is [A, B, C].
+const C: TaskDto = {
+  ...A, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', title: 'Task C',
   createdAt: '2026-09-07T10:00:00.000Z', updatedAt: '2026-09-07T10:00:00.000Z',
 };
-const B: TaskDto = { ...A, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Task B' };
 
 function seeded(tasks: TaskDto[]) {
   const queryClient = createTestQueryClient();
@@ -130,5 +140,45 @@ describe('useDeleteTask', () => {
 
     await waitFor(() => { expect(result.current.isError).toBe(true); });
     expect(read(queryClient).map((t) => t.id)).toEqual([A.id, B.id]);
+  });
+
+  it('preserves row order when two concurrent deletes both fail', async () => {
+    // REGRESSION TEST. An index captured at onMutate time goes stale the
+    // instant another in-flight delete removes a row ahead of it: the second
+    // delete's `index` is relative to an already-shrunk list, not the list's
+    // true original order. Restoring by that stale index on rollback produces
+    // the wrong final order even though no row is lost.
+    //
+    // Same shared-cache-contention shape as the toggle concurrent-rows test:
+    // two mutate() calls on one hook instance, each with its own onMutate/
+    // onError context. Assertions read the cache, never result.current.
+    let failA!: (e: unknown) => void;
+    let failC!: (e: unknown) => void;
+
+    vi.spyOn(api, 'deleteTask').mockImplementation((id: string) =>
+      id === A.id
+        ? new Promise<void>((_res, rej) => { failA = rej; })
+        : new Promise<void>((_res, rej) => { failC = rej; }),
+    );
+
+    const { queryClient, wrapper } = seeded([A, B, C]);
+    const { result } = renderHook(() => useDeleteTask(), { wrapper });
+
+    act(() => { result.current.mutate(A.id); });
+    await waitFor(() => { expect(read(queryClient).map((t) => t.id)).toEqual([B.id, C.id]); });
+
+    act(() => { result.current.mutate(C.id); });
+    await waitFor(() => { expect(read(queryClient).map((t) => t.id)).toEqual([B.id]); });
+
+    act(() => { failA(new api.ApiError(500, 'INTERNAL_ERROR', 'boom')); });
+    await waitFor(() => { expect(read(queryClient).map((t) => t.id)).toContain(A.id); });
+
+    act(() => { failC(new api.ApiError(500, 'INTERNAL_ERROR', 'boom')); });
+
+    // Both rollbacks landed — the list must be back in its original order,
+    // not whatever order the stale indices happened to produce.
+    await waitFor(() => {
+      expect(read(queryClient).map((t) => t.id)).toEqual([A.id, B.id, C.id]);
+    });
   });
 });
