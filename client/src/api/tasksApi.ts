@@ -17,10 +17,13 @@ export class ApiError extends Error {
   }
 }
 
+const validErrorCodes: readonly ApiErrorCode[] = ['VALIDATION_ERROR', 'NOT_FOUND', 'INTERNAL_ERROR'];
+
 function isErrorBody(value: unknown): value is ApiErrorBody {
   return (
     typeof value === 'object' && value !== null && 'error' in value &&
-    typeof (value as ApiErrorBody).error?.message === 'string'
+    typeof (value as ApiErrorBody).error?.message === 'string' &&
+    validErrorCodes.includes((value as ApiErrorBody).error?.code as ApiErrorCode)
   );
 }
 

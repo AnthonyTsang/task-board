@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { listTasks, createTask, toggleTask, deleteTask, ApiError } from '../src/api/tasksApi';
 
 const TASK = {
@@ -74,8 +74,28 @@ describe('tasksApi', () => {
     });
   });
 
-  it('falls back to a generic message when the body is not an envelope', async () => {
+  it('falls back to a generic message when json() throws (HTML proxy response)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listTasks()).rejects.toMatchObject({ status: 502, code: 'INTERNAL_ERROR' });
+  });
+
+  it('falls back to a generic message when the body is not an envelope object', async () => {
     stubFetch('<html>502 Bad Gateway</html>', { status: 502 });
     await expect(listTasks()).rejects.toMatchObject({ status: 502, code: 'INTERNAL_ERROR' });
+  });
+
+  it('falls back when error envelope is missing the code field', async () => {
+    stubFetch(
+      { error: { message: 'something went wrong' } },
+      { status: 500 },
+    );
+
+    await expect(listTasks()).rejects.toMatchObject({ status: 500, code: 'INTERNAL_ERROR' });
   });
 });
