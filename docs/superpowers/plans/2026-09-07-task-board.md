@@ -2415,11 +2415,18 @@ export function renderWithClient(ui: ReactElement): { queryClient: QueryClient }
 }
 ```
 
-> **A note on `vi.spyOn(api, 'listTasks')`,** used by this task and Tasks 13–15. It works because
-> Vitest transforms local source modules and leaves their exports configurable, and ESM live bindings
-> mean the hooks see the replacement. If a spy ever fails with `Cannot redefine property`, replace that
-> file's spies with `vi.mock('../src/api/tasksApi', ...)` — do not switch the hooks to indirect calls
-> just to make a test framework happy.
+> **`vi.spyOn(api, 'listTasks')` — verified, not assumed.** This task and Tasks 13–15 all depend on
+> spying against ESM namespace exports, which is a sharp edge that has shifted across Vitest majors.
+> It was tested directly against Vitest 5.0.0 before implementation began, covering all four things
+> these tasks need: the spy installs on a namespace export; a consumer module importing that function
+> sees the replacement through its live binding; `mockResolvedValue` works on an async export; and
+> `mockImplementation` can branch on an argument to return two *distinct unsettled* promises, later
+> settling one resolved and one rejected — which is exactly Task 13's concurrent-rows pattern. All
+> four pass. Ship these tasks as written.
+>
+> If a spy ever does fail with `Cannot redefine property`, replace that file's spies with
+> `vi.mock('../src/api/tasksApi', ...)` — do not switch the hooks to indirect calls just to satisfy a
+> test framework.
 
 - [ ] **Step 2: Write the failing test**
 
