@@ -4,9 +4,9 @@ import express from 'express';
 import { createApp } from '../src/app.js';
 import { HttpError } from '../src/lib/HttpError.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
+import { makeFakeTaskModel } from './helpers/fakeTaskModel.js';
 
-// A stand-in model; Task 5 replaces this with the shared makeFakeTaskModel helper.
-const stubModel = {} as never;
+const stubModel = makeFakeTaskModel();
 
 describe('app-level error handling', () => {
   it('returns a JSON 404 envelope for an unmatched route', async () => {
