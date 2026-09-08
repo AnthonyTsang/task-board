@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { createTestQueryClient } from './renderWithClient';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createTestQueryClient, renderWithClient } from './renderWithClient';
 import { useTasksQuery } from '../src/hooks/useTasksQuery';
 import { useCreateTask } from '../src/hooks/useCreateTask';
 import * as api from '../src/api/tasksApi';
@@ -67,5 +67,14 @@ describe('useCreateTask', () => {
     await waitFor(() => { expect(result.current.isError).toBe(true); });
     expect(result.current.error?.message).toBe('title required');
     expect(queryClient.getQueryData(['tasks'])).toEqual([]);
+  });
+});
+
+describe('renderWithClient', () => {
+  it('renders its children and exposes a real QueryClient', () => {
+    const { queryClient, getByText } = renderWithClient(<div>hello from renderWithClient</div>);
+
+    expect(queryClient).toBeInstanceOf(QueryClient);
+    expect(getByText('hello from renderWithClient')).toBeInTheDocument();
   });
 });
