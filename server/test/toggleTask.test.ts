@@ -48,6 +48,10 @@ describe('PATCH /api/tasks/:id/toggle', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+    // Pins the route's own 404, not the app's catch-all (same status/code):
+    // the message must name the id, and update must have actually run.
+    expect(res.body.error.message).toContain(ID);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 for a non-UUID id, never letting it reach Postgres', async () => {
