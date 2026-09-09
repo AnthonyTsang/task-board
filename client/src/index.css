@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+/*
+ * Page-level background and text colour.
+ *
+ * These are load-bearing, not decoration. Every component in this app carries
+ * `dark:` variants, which Tailwind fires on `prefers-color-scheme: dark`. Without
+ * a matching page background the two halves disagree: a heading styled
+ * `dark:text-neutral-100` renders near-white on the browser's default white page
+ * and becomes invisible. Set the surface here and the component variants line up.
+ *
+ * Tailwind's preflight derives `::placeholder` from `currentColor`, so setting
+ * the text colour is enough — placeholders follow automatically.
+ */
+@layer base {
+  body {
+    @apply bg-white text-neutral-900;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      @apply bg-neutral-950 text-neutral-100;
+    }
+  }
+}
