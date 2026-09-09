@@ -15,13 +15,17 @@ docker compose up -d          # start Postgres on localhost:54322
 cp .env.docker.example .env   # local connection settings
 npm install
 npm run migrate               # create the tasks table
-npm run dev                   # API on :3000, client on :5173
+npm run dev                   # everything on :3000
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to the API, so the
-browser sees one origin and the server needs no CORS middleware.
+Open http://localhost:3000. The Express server serves the client as well as the API,
+so there is one process, one port, and one origin — no proxy and no CORS middleware.
 
-Only the database is containerised. The API and Vite stay on the host so `npm run dev`
+In development it runs Vite in middleware mode, so you still get transforms and hot
+module replacement; in production it serves `client/dist`. See
+[Serving the client](#serving-the-client).
+
+Only the database is containerised. The server stays on the host so `npm run dev`
 keeps hot reload.
 
 | Command | Effect |
@@ -41,7 +45,7 @@ To match your Supabase major version, set `POSTGRES_IMAGE` (e.g.
 ```bash
 cp .env.example .env          # then fill in your Supabase values
 npm run migrate
-npm run dev                   # or: npm run build && npm start
+npm run build && npm start    # serves the built client from client/dist
 ```
 
 Leave `DB_SSL` unset for Supabase. It defaults to `require`.
@@ -100,6 +104,37 @@ The toggle endpoint takes no body — it flips `completed` rather than setting i
 single atomic `UPDATE ... SET completed = NOT completed`. That makes it **not
 idempotent**, which is why the client pins TanStack Query's mutation `retry` to `0`.
 
+## Serving the client
+
+One server serves both the API and the client. Which client depends on how the
+server was started:
+
+| Command | Mode | Client |
+|---|---|---|
+| `npm run dev` | development | Vite in middleware mode — transforms and HMR |
+| `npm start` | production | the built files in `client/dist` |
+
+The switch is the `--dev` flag in the server's `dev` script, not an environment
+variable. `.env` is copied between the local and Supabase templates, so a mode
+stored there would change how the client is served every time you swapped
+templates. The flag belongs to the invocation.
+
+Vite is imported dynamically, so production never loads it — `npm start` runs the
+compiled output with devDependencies absent.
+
+Requests under `/api` never reach the client layer. Vite's SPA fallback would
+otherwise answer a mistyped `/api/taks` from a browser with `index.html`, so a bad
+API path would return HTML in development and a JSON 404 in production. Everything
+else falls through to `index.html`, so refreshing on a client route works.
+
+`npm run build` must run before `npm start`; without `client/dist` the server starts
+and answers the API, but every page request 404s.
+
+> **Note:** the server's file watcher excludes `client/`. Vite compiles
+> `vite.config.ts` to a temp file under `client/node_modules/.vite-temp/` and then
+> deletes it; a watcher that sees that deletion restarts the server, which makes Vite
+> do it again — an endless restart loop. Client changes are Vite's job anyway.
+
 ## Shutdown
 
 On `SIGINT` or `SIGTERM` the API stops accepting connections, lets in-flight
@@ -118,7 +153,8 @@ rather than `npm run dev`, since `tsx watch` intercepts signals to restart the c
 
 | Command | Effect |
 |---|---|
-| `npm run dev` | server and client together |
+| `npm run dev` | API and client on one port, with HMR |
+| `npm start` | the same, serving the built client |
 | `npm run migrate` | apply pending migrations |
 | `npm run migrate:down` | roll back one migration |
 | `npm test` | full test suite |
@@ -127,7 +163,7 @@ rather than `npm run dev`, since `tsx watch` intercepts signals to restart the c
 
 ## Testing
 
-`npm test` runs 122 tests across three workspaces. **No automated test executes SQL** —
+`npm test` runs 136 tests across three workspaces. **No automated test executes SQL** —
 the model is injected as a fake, so the suite is fast, offline, and needs no
 credentials.
 
@@ -137,3 +173,8 @@ manual checklist in `docs/superpowers/specs/2026-09-07-task-board-design.md`, wh
 now cheap to rehearse against the local container before running it against Supabase.
 
 Run that checklist after any change to the model, the migration, or the toggle query.
+
+The same applies to the development client path. The static path and the `/api` guard
+are covered by tests against a fixture build, but nothing spins up Vite, so changes to
+`devClientMiddleware` or to `vite.config.ts` need `npm run dev` and a page load to
+verify.

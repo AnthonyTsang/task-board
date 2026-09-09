@@ -3,6 +3,7 @@ import { createSequelize } from './db/sequelize.js';
 import { initTaskModel } from './models/Task.js';
 import { createApp } from './app.js';
 import { attachGracefulShutdown } from './lib/shutdown.js';
+import { createClientMiddleware } from './client.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -12,10 +13,15 @@ async function main(): Promise<void> {
   await sequelize.authenticate();
 
   const taskModel = initTaskModel(sequelize);
-  const app = createApp(taskModel);
+
+  // The mode comes from the invocation, not from .env: the same .env is copied
+  // between the local and Supabase templates, so putting the switch there would
+  // let a template copy silently change how the client is served.
+  const mode = process.argv.includes('--dev') ? 'development' : 'production';
+  const app = createApp(taskModel, await createClientMiddleware(mode));
 
   const server = app.listen(env.port, () => {
-    console.log(`API listening on http://localhost:${env.port}`);
+    console.log(`Task board (${mode}) on http://localhost:${env.port}`);
   });
 
   // listen() doesn't throw synchronously on a bind failure — it emits 'error'

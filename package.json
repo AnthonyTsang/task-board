@@ -4,9 +4,8 @@
   "type": "module",
   "workspaces": ["shared", "server", "client"],
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "npm run dev -w server",
-    "dev:client": "npm run dev -w client",
+    "dev": "npm run dev -w server",
+    "start": "npm start -w server",
     "migrate": "npm run migrate -w server",
     "migrate:down": "npm run migrate:down -w server",
     "test": "vitest run",
@@ -14,7 +13,6 @@
     "build": "npm run build -w server && npm run build -w client"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5",
     "typescript": "7.0.2",
     "vitest": "5.0.0"
   }
