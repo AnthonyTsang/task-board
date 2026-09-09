@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   // exception and dumps a stack trace instead of the clean message every
   // other failure mode in this file produces.
   server.on('error', (err: Error) => {
-    console.error(`HTTP server error (port ${env.port}): ${err.message}`);
+    console.error(`Failed to bind port ${env.port}: ${err.message}`);
     process.exit(1);
   });
 

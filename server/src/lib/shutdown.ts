@@ -90,7 +90,12 @@ export async function shutdown({
  * SIGTERM is what a container runtime sends and is the reason this exists at
  * all; it is never delivered on Windows, so local verification means Ctrl-C.
  */
-export function attachGracefulShutdown(deps: ShutdownDeps): void {
+export function attachGracefulShutdown(
+  deps: ShutdownDeps,
+  // Injectable purely so the tests can assert the exit code without killing the
+  // test runner. Production always uses process.exit.
+  exit: (code: number) => void = (code) => process.exit(code),
+): void {
   const log = deps.log ?? console.log;
   let shuttingDown = false;
 
@@ -103,7 +108,7 @@ export function attachGracefulShutdown(deps: ShutdownDeps): void {
 
       log(`Received ${signal}, shutting down…`);
       void shutdown(deps).then((code) => {
-        process.exit(code);
+        exit(code);
       });
     });
   }

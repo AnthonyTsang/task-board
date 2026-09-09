@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Server } from 'node:http';
-import { shutdown } from '../src/lib/shutdown.js';
+import { shutdown, attachGracefulShutdown } from '../src/lib/shutdown.js';
 
 /**
  * A server that records the order of calls and lets each test decide how
@@ -92,5 +92,90 @@ describe('shutdown', () => {
     await shutdown({ server, db: makeFakeDb(), log: () => {}, logError });
 
     expect(logError).toHaveBeenCalledWith(expect.stringContaining('sockets still attached'));
+  });
+});
+
+const SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+
+type SignalListener = (signal: NodeJS.Signals) => void;
+
+/**
+ * Attaches, then hands back the listeners that were added so a test can invoke
+ * them directly.
+ *
+ * Invoking rather than `process.emit('SIGINT')` on purpose: a real emit also
+ * fires Vitest's own signal handlers and would tear down the run.
+ */
+function attachAndCapture(deps: Parameters<typeof attachGracefulShutdown>[0], exit: (code: number) => void) {
+  const before = new Map(SIGNALS.map((s) => [s, new Set(process.listeners(s))]));
+  attachGracefulShutdown(deps, exit);
+
+  const added = new Map(
+    SIGNALS.map((s) => [
+      s,
+      process.listeners(s).filter((l) => !before.get(s)?.has(l)) as SignalListener[],
+    ]),
+  );
+  registered.push(added);
+  return added;
+}
+
+const registered: Map<(typeof SIGNALS)[number], SignalListener[]>[] = [];
+
+afterEach(() => {
+  // Remove only our own listeners — never removeAllListeners, which would strip
+  // Vitest's and break its cleanup.
+  for (const added of registered) {
+    for (const [signal, listeners] of added) {
+      for (const listener of listeners) process.removeListener(signal, listener);
+    }
+  }
+  registered.length = 0;
+});
+
+describe('attachGracefulShutdown', () => {
+  it('registers a handler for both SIGINT and SIGTERM', () => {
+    // SIGTERM is what a container runtime sends and is the reason this exists.
+    const { server } = makeFakeServer();
+    const added = attachAndCapture({ server, db: makeFakeDb(), ...silent }, () => {});
+
+    expect(added.get('SIGINT')).toHaveLength(1);
+    expect(added.get('SIGTERM')).toHaveLength(1);
+  });
+
+  it('exits 0 after a clean shutdown', async () => {
+    const { server } = makeFakeServer();
+    const exit = vi.fn();
+    const added = attachAndCapture({ server, db: makeFakeDb(), ...silent }, exit);
+
+    added.get('SIGINT')?.[0]?.('SIGINT');
+    await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0); });
+  });
+
+  it('propagates a failed shutdown as a non-zero exit code', async () => {
+    const { server } = makeFakeServer();
+    const exit = vi.fn();
+    const added = attachAndCapture({ server, db: makeFakeDb('error'), ...silent }, exit);
+
+    added.get('SIGINT')?.[0]?.('SIGINT');
+    await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(1); });
+  });
+
+  it('ignores a second signal instead of starting a second shutdown', async () => {
+    // A second Ctrl-C during a slow drain must not race the first shutdown's
+    // exit code, or close an already-closed pool.
+    const { server } = makeFakeServer();
+    const db = makeFakeDb();
+    const exit = vi.fn();
+    const added = attachAndCapture({ server, db, ...silent }, exit);
+
+    const handler = added.get('SIGINT')?.[0];
+    handler?.('SIGINT');
+    handler?.('SIGINT');
+    added.get('SIGTERM')?.[0]?.('SIGTERM');
+
+    await vi.waitFor(() => { expect(exit).toHaveBeenCalled(); });
+    expect(db.close).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(1);
   });
 });

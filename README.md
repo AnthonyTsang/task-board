@@ -127,7 +127,7 @@ rather than `npm run dev`, since `tsx watch` intercepts signals to restart the c
 
 ## Testing
 
-`npm test` runs 118 tests across three workspaces. **No automated test executes SQL** —
+`npm test` runs 122 tests across three workspaces. **No automated test executes SQL** —
 the model is injected as a fake, so the suite is fast, offline, and needs no
 credentials.
 
