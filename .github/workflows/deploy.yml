@@ -11,6 +11,15 @@ jobs:
         run: npm ci
       - name: Test
         run: npm test
+      - name: 'Create env file'
+        run: |
+          touch .env
+          echo DB_HOST=${{ secrets.DB_HOST }} >> .env
+          echo DB_NAME=${{ secrets.DB_NAME }} >> .env
+          echo DB_PASSWORD=${{ secrets.DB_PASSWORD }} >> .env
+          echo DB_PORT=${{ secrets.DB_PORT }} >> .env
+          echo DB_USER=${{ secrets.DB_USER }} >> .env
+          echo PORT=${{ secrets.PORT }} >> .env
       - name: Migrate
         run: npm run migrate
       - name: Deploy to Render
