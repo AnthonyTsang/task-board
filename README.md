@@ -100,6 +100,20 @@ The toggle endpoint takes no body — it flips `completed` rather than setting i
 single atomic `UPDATE ... SET completed = NOT completed`. That makes it **not
 idempotent**, which is why the client pins TanStack Query's mutation `retry` to `0`.
 
+## Shutdown
+
+On `SIGINT` or `SIGTERM` the API stops accepting connections, lets in-flight
+requests finish, closes the database pool, and exits 0. If that has not completed
+within 10 seconds it logs the timeout and exits 1 rather than hanging.
+
+The order matters: closing the pool before requests drain would turn the last few
+into connection errors. A second Ctrl-C during the drain is ignored, so it cannot
+race the first shutdown's exit code.
+
+`SIGTERM` is what a container runtime sends and is the reason this exists. Windows
+never delivers it, so verify locally with Ctrl-C — and against `tsx src/server.ts`
+rather than `npm run dev`, since `tsx watch` intercepts signals to restart the child.
+
 ## Commands
 
 | Command | Effect |
@@ -113,7 +127,7 @@ idempotent**, which is why the client pins TanStack Query's mutation `retry` to 
 
 ## Testing
 
-`npm test` runs 111 tests across three workspaces. **No automated test executes SQL** —
+`npm test` runs 118 tests across three workspaces. **No automated test executes SQL** —
 the model is injected as a fake, so the suite is fast, offline, and needs no
 credentials.
 

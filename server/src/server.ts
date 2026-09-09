@@ -2,6 +2,7 @@ import { loadEnv } from './config/env.js';
 import { createSequelize } from './db/sequelize.js';
 import { initTaskModel } from './models/Task.js';
 import { createApp } from './app.js';
+import { attachGracefulShutdown } from './lib/shutdown.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -22,9 +23,12 @@ async function main(): Promise<void> {
   // exception and dumps a stack trace instead of the clean message every
   // other failure mode in this file produces.
   server.on('error', (err: Error) => {
-    console.error(`Failed to bind port ${env.port}: ${err.message}`);
+    console.error(`HTTP server error (port ${env.port}): ${err.message}`);
     process.exit(1);
   });
+
+  // Drain in-flight requests and close the connection pool on SIGINT/SIGTERM.
+  attachGracefulShutdown({ server, db: sequelize });
 }
 
 main().catch((err: unknown) => {
