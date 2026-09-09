@@ -50,6 +50,77 @@ npm run build && npm start    # serves the built client from client/dist
 
 Leave `DB_SSL` unset for Supabase. It defaults to `require`.
 
+Production is two services: the app runs on Render, the database is Supabase. The
+server binds `0.0.0.0` rather than localhost because Render's router will not reach
+a process listening only on the loopback interface.
+
+That sequence is the manual form of what pushing to `main` now does on its own — see
+[Continuous deployment](#continuous-deployment).
+
+## Continuous deployment
+
+Two workflows in `.github/workflows/`:
+
+| Workflow | Trigger | Effect |
+|---|---|---|
+| `deploy.yml` | push to `main` | install, test, migrate, then trigger a Render deploy |
+| `rollback.yml` | manual (`workflow_dispatch`) | roll back one migration |
+
+Deploy runs `npm ci` → `npm test` → write `.env` → `npm run migrate` → `POST` to the
+Render deploy hook. The test step needs no credentials: no automated test executes
+SQL (see [Testing](#testing)), so it gates the push without touching the database.
+
+The `.env` the workflow writes lives only on the runner, and only so the migration
+step can connect. It never reaches Render — the deployed app reads its environment
+from Render's own configuration, and the build and start commands are set in the
+Render dashboard, not in this repository.
+
+Two consequences worth holding on to:
+
+- **Migrations run against production before the new code is live.** For the length
+  of the deploy window the old release is talking to the new schema, so every
+  migration has to be backward compatible with the release it replaces. Dropping or
+  renaming a column breaks the running app several minutes before the code that
+  stopped reading it arrives; do it in two deploys, not one.
+- **The runner connects to the production database directly**, so `DB_HOST` has to
+  accept connections from GitHub's runner addresses. Supabase's pooler does.
+
+The final `curl` is fire-and-forget: a green Deploy means Render accepted the
+trigger, not that the deploy succeeded. Render's own dashboard is the record of that.
+
+Neither workflow pins a Node version, so both run on whatever the runner ships, and
+neither runs `npm run build` — Render builds the client and server itself.
+
+### Secrets
+
+Set all seven in the repository's Actions secrets:
+
+| Secret | Purpose |
+|---|---|
+| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | the migration's connection to Supabase |
+| `PORT` | written into the runner's `.env` |
+| `RENDER_DEPLOY_HOOK_URL` | the Render service's deploy hook |
+
+`DB_SSL` is deliberately absent. Left unset it defaults to `require`, which is what
+Supabase needs; adding it as a secret only creates a way to get it wrong.
+
+`PORT` is optional to the app — it defaults to 3000 — but **required here**. The
+workflow writes the line unconditionally, so an unset secret produces `PORT=`, and
+an empty string is not the same as an absent one: validation rejects it with
+`PORT: Too small: expected number to be >0` and the Migrate step fails. Better to
+delete the line than to set the secret: `migrate.ts` validates the whole environment
+but never reads the port, so the secret exists only to satisfy a check for a value
+nothing in that step uses — and since this `.env` never leaves the runner, it is not
+where the deployed app's port comes from anyway.
+
+### Rolling back
+
+`rollback.yml` runs `npm run migrate:down`: one migration, nothing else. It does not
+redeploy or revert code, despite the job being named `deploy` — to move the code back,
+redeploy an earlier commit from Render. It is dispatch-only so it cannot fire on a
+push, which is the point: it is a deliberate action taken during an incident, not
+part of the pipeline.
+
 ## Switching between them
 
 `.env` is the single active configuration; `.env.docker.example` and `.env.example`
