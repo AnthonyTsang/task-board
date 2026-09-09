@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   const mode = process.argv.includes('--dev') ? 'development' : 'production';
   const app = createApp(taskModel, await createClientMiddleware(mode));
 
-  const server = app.listen(env.port, () => {
+  const server = app.listen(env.port, "0.0.0.0", () => {
     console.log(`Task board (${mode}) on http://localhost:${env.port}`);
   });
 
