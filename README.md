@@ -6,6 +6,54 @@ TanStack Query client.
 Tasks are **write-once**: title and description are set at creation and never edited.
 The only mutations afterwards are toggle and delete.
 
+## Layout
+
+```
+shared/src/          types-only: TaskDto, CreateTaskInput, the error envelope. Server and
+                     client both import it, so the wire shape has exactly one definition.
+
+server/src/
+  app.ts             assembles the middleware stack: JSON, API, client, 404, errors. Never
+                     calls listen() — that split is what lets Supertest drive the real app
+                     without binding a port.
+  server.ts          the entrypoint. Loads env, connects, builds the app, listens, and
+                     wires the signal handlers.
+  client.ts          serves the client: Vite in development, client/dist in production.
+  routes/            one module per operation — createTask, listTasks, toggleTask,
+                     deleteTask. index.ts composes the four into the router app.ts mounts
+                     at /api/tasks.
+  db/                sequelize.ts builds the connection; constructing it opens nothing, so
+                     a caller needs no reachable database. umzug.ts builds the migrator and
+                     records what it applied in a SequelizeMeta table, which is why
+                     `npm run migrate` is safe to re-run.
+  migrations/        the numbered schema changes umzug applies. A sibling of db/, not part
+                     of it — the migrator globs upward into here.
+  models/Task.ts     the Sequelize model, plus the toDto() mapping from row to wire.
+  config/env.ts      validates the environment once, at startup, naming what is wrong.
+  lib/               HttpError, the zod request validator, and graceful shutdown.
+  middleware/        the error handler that turns anything thrown into the JSON envelope.
+
+client/src/
+  api/               tasksApi.ts is the only place in the client that knows about HTTP:
+                     hooks get data or an ApiError back, never a Response. queryKeys.ts
+                     holds the cache keys both sides of a mutation agree on.
+  hooks/             one TanStack Query hook per operation — one query, three mutations.
+                     The mutations own the optimistic updates and their rollback.
+  components/        six presentational pieces. TaskItem holds its own mutation instances,
+                     so `isPending` is per row and no shared pending-id set is needed.
+  App.tsx            owns the filter state and composes the rest.
+
+docs/superpowers/    the approved design spec and the implementation plan built from it.
+                     History rather than configuration — but the spec also carries the
+                     manual verification checklist that Testing below refers to.
+docs/transcript.txt  the transcript between the developer and Claude Code.
+```
+
+Each workspace keeps its tests in a sibling `test/` directory rather than beside the
+source. The sections below go deeper where it matters: [API](#api),
+[Serving the client](#serving-the-client), [Shutdown](#shutdown),
+[Environment variables](#environment-variables), [A note on TLS](#a-note-on-tls).
+
 ## Quick start — local development
 
 Runs against a Postgres container. Nothing touches your production database.

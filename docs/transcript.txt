@@ -1,0 +1,1813 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                Welcome back Anthony!               │ started                 │
+│                                                    │ Ask Claude to create a… │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│     Opus 5 · Claude Pro · yeuksing@gmail.com's     │ Added an "Organization… │
+│     Organization                                   │ Added `bashOutputMaxCh… │
+│               E:\code\bmo-task-board               │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+   Tackle your toughest work with Opus 5. Switch anytime with /model.
+
+● Fixed and verified in the browser. Reload and it should look right.
+
+  Both symptoms had one root cause. index.css was bare — just @import 
+  "tailwindcss";. Nothing ever set a page background or base text colour. But
+  every component in the app carries dark: variants, which Tailwind fires on
+  your OS dark-mode preference. So the components styled themselves for a dark
+  page that never existed:
+
+  - Heading, task titles, and the active filter tab use dark:text-neutral-100 —
+  near-white text on the browser's default white page. That's your "too light".
+  - Both form inputs set dark:bg-neutral-900 with no matching dark:text-* — so a
+  near-black box with black text. That's your "black on black".
+
+  Worth noting the screenshot showed more damage than you'd spotted: all three
+  task titles and the "All" tab were also invisible. The descriptions and "3 of
+  3 remaining" survived only by accident — they use a mid-grey that happens to
+  read on white.
+
+  The fix, two parts:
+
+  1. index.css now sets the page surface for both schemes — white/dark-text by
+  default, neutral-950/light-text under prefers-color-scheme: dark. Tailwind's
+  preflight derives ::placeholder from currentColor, so placeholders follow
+  automatically.
+  2. Each input's background is now paired with an explicit text colour, in both
+  schemes.
+
+  I verified in the browser rather than assuming: heading, titles, tabs, typed
+  text, and the completed strikethrough all legible. I also confirmed the built
+  CSS contains both the light rule and the dark override, so this isn't a fix
+  that only works on your machine — light mode is intact.
+
+  111 tests still pass, client builds clean.
+
+  Two small things I noticed while in there, neither urgent:
+
+  - The 16px checkboxes were hard to hit with synthetic clicks. Your real clicks
+  work fine, but they're on the small side — worth enlarging the hit area if
+  you ever use this on a touchscreen.
+  - The app follows your OS theme with no manual toggle. That's a reasonable
+  default, but if you'd like a light/dark switch, it's a contained addition now
+  that the surface is properly wired.
+
+  Still outstanding: Task 16 against real Supabase. The local rehearsal passed
+  completely — including literal('NOT completed'), which was the big unknown —
+  so the remaining risk is small, but the pooler TLS path and the hosted schema
+  still only exist there.
+
+✻ Cooked for 4m 7s
+
+※ recap: Your task board is built and working locally against the Docker Postgres, with the UI contrast bug now fixed and verified. The one remaining step is running the verification checklist against real Supabase, which needs your connection details in a root .env file.
+
+❯ /compact                                                                      
+  ⎿  Compacted (ctrl+o to see full summary)
+     Tip: You have access to Opus 1M with 5x more context
+  ⎿  Read client\src\components\TaskForm.tsx (62 lines)
+  ⎿  Read client\src\index.css (26 lines)
+  ⎿  Read README.md (126 lines)
+  ⎿  Referenced file docs\superpowers\specs\2026-09-07-task-board-design.md
+  ⎿  Read .env.example (24 lines)
+  ⎿  Skills restored (superpowers:subagent-driven-development, 
+     superpowers:writing-plans, superpowers:brainstorming)
+
+※ recap: We built the task board and it's working locally against Docker Postgres; I just fixed the unreadable dark-mode text, and all 111 tests pass. Next: run the verification checklist against real Supabase, which needs your credentials in .env.
+
+❯ add graceful shutdown on backend. Then commit.                                
+
+● I'll look at the server entrypoint before changing it.
+
+  Read 4 files, listed 2 directories (ctrl+o to expand)
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+  Read 1 file (ctrl+o to expand)
+
+● Now the shutdown module.
+
+● Write(server\src\lib\shutdown.ts)
+  ⎿  Wrote 129 lines to server\src\lib\shutdown.ts
+      1 import type { Server } from 'node:http';
+      2 
+      3 /**
+      4  * The slice of Sequelize that shutdown needs. Narrowing it to on
+        e method lets
+      5  * the tests pass a fake instead of standing up a database.
+      6  */
+      7 export interface PoolCloser {
+      8   close(): Promise<void>;
+      9 }
+     … +139 lines (ctrl+o to expand)
+
+● Write(server\test\shutdown.test.ts)
+  ⎿  Wrote 95 lines to server\test\shutdown.test.ts
+       1 import { describe, it, expect, vi } from 'vitest';
+       2 import type { Server } from 'node:http';
+       3 import { shutdown } from '../src/lib/shutdown.js';
+       4 
+       5 /**
+         ecide how
+       7  * `close()` settles: cleanly, with an error, or never.
+       8  */
+       9 function makeFakeServer(
+      10   behaviour: 'clean' | 'error' | 'hang' = 'clean',
+     … +107 lines (ctrl+o to expand)
+
+● Now wire it into the entrypoint.
+
+● Update(server\src\server.ts)
+  ⎿  Added 1 line
+      2  import { createSequelize } from './db/sequelize.js';
+      3  import { initTaskModel } from './models/Task.js';
+      4  import { createApp } from './app.js';
+      5 +import { attachGracefulShutdown } from './lib/shutdown.js';     
+      6  
+      7  async function main(): Promise<void> {
+      8    const env = loadEnv();
+
+● Update(server\src\server.ts)
+  ⎿  Added 4 lines, removed 1 line
+      23    // exception and dumps a stack trace instead of the clean mes
+          sage every
+      24    // other failure mode in this file produces.
+      25    server.on('error', (err: Error) => {
+      26 -    console.error(`Failed to bind port ${env.port}: ${err.messa
+         -ge}`);                                                         
+      26 +    console.error(`HTTP server error (port ${env.port}): ${err.
+         +message}`);                                                    
+      27      process.exit(1);
+      28    });
+      29 +                                                               
+      30 +  // Drain in-flight requests and close the connection pool on 
+         +SIGINT/SIGTERM.                                                
+      31 +  attachGracefulShutdown({ server, db: sequelize });           
+      32  }
+      33  
+      34  main().catch((err: unknown) => {
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Tests pass. Now let me verify the real Node semantics my fakes can't cover —
+  specifically whether closeIdleConnections() is actually load-bearing.
+
+  Made 2 scratchpad edits +41 -1, ran 3 shell commands (ctrl+o to expand)
+● The control also closed instantly — so my "load-bearing" claim needs checking.
+  Let me verify the socket was genuinely open.
+
+  Made 1 scratchpad edit +26, ran 2 shell commands (ctrl+o to expand)
+
+● The call is redundant on Node 24 — close() already handles idle sockets there.
+  Keeping it (the deploy runtime isn't pinned), but the comment overclaims.
+  Fixing it.
+
+● Update(server\src\lib\shutdown.ts)
+  ⎿  Added 6 lines, removed 4 lines
+      116        else resolve();
+      117      });
+      118  
+      119 -    // close() stops new connections and waits for active ones
+          -, but idle                                                    
+      120 -    // keep-alive sockets — which the Vite proxy and any open 
+          -browser tab hold —                                            
+      121 -    // are not active and not closed. Without this, every shut
+          -down waits out the                                            
+      122 -    // full timeout instead of finishing in milliseconds.     
+      119 +    // Idle keep-alive sockets — which the Vite proxy and any 
+          +open browser tab                                              
+      120 +    // hold — are not active requests, so on older Node versio
+          +ns close() waits                                              
+      121 +    // for them and shutdown stalls until the force timer fire
+          +s. Measured on                                                
+      122 +    // Node 24 close() already drops them and this is a no-op,
+          + but the call is                                              
+      123 +    // idempotent and package.json pins no engine, so it stays
+          +: it costs nothing                                            
+      124 +    // and removes the runtime version as a variable.         
+      125      server.closeIdleConnections();
+      126    });
+      127  }
+
+● Update(server\test\shutdown.test.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      51    });
+      52  
+      53    it('closes idle keep-alive connections', async () => {
+      54 -    // Without this the Vite proxy's idle sockets hold the serv
+         -er open until the                                              
+      55 -    // force timer fires, turning a 20ms shutdown into a 10s on
+         -e.                                                             
+      54 +    // Defensive: Node 24's close() drops idle sockets on its o
+         +wn, but older                                                  
+      55 +    // runtimes wait for them and stall shutdown until the forc
+         +e timer fires.                                                 
+      56 +    // package.json pins no engine, so the call must not be dro
+         +pped as dead code.                                             
+      57      const { server, spies } = makeFakeServer();
+      58      await shutdown({ server, db: makeFakeDb(), ...silent });
+      59  
+
+● Now let me verify the real wiring — signal handler, idempotency, exit code.
+
+  Made 2 scratchpad edits +54, ran 3 shell commands (ctrl+o to expand)
+
+● A stale server from the earlier session holds port 3000. Let me clear it and
+  fix the probe's listener ordering.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● That's the user's dev server from the earlier session, not my probe — leaving
+  it alone. (Windows can't deliver a real SIGINT via child.kill regardless, so
+  that probe couldn't have verified anything.) Updating the README's now-stale
+  test count.
+
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      113  
+      114  ## Testing
+      115  
+      116 -`npm test` runs 111 tests across three workspaces. **No automa
+          -ted test executes SQL** —                                     
+      116 +`npm test` runs 118 tests across three workspaces. **No automa
+          +ted test executes SQL** —                                     
+      117  the model is injected as a fake, so the suite is fast, offline
+           , and needs no
+      118  credentials.
+      119  
+
+● Update(README.md)
+  ⎿  Added 14 lines
+      100  single atomic `UPDATE ... SET completed = NOT completed`. That
+            makes it **not
+      101  idempotent**, which is why the client pins TanStack Query's mu
+           tation `retry` to `0`.
+      102  
+      103 +## Shutdown                                                   
+      104 +                                                              
+      105 +On `SIGINT` or `SIGTERM` the API stops accepting connections, 
+          +lets in-flight                                                
+      106 +requests finish, closes the database pool, and exits 0. If tha
+          +t has not completed                                           
+      107 +within 10 seconds it logs the timeout and exits 1 rather than 
+          +hanging.                                                      
+      108 +                                                              
+      109 +The order matters: closing the pool before requests drain woul
+          +d turn the last few                                           
+      110 +into connection errors. A second Ctrl-C during the drain is ig
+          +nored, so it cannot                                           
+      111 +race the first shutdown's exit code.                          
+      112 +                                                              
+      113 +`SIGTERM` is what a container runtime sends and is the reason 
+          +this exists. Windows                                          
+      114 +never delivers it, so verify locally with Ctrl-C — and against
+          + `tsx src/server.ts`                                          
+      115 +rather than `npm run dev`, since `tsx watch` intercepts signal
+          +s to restart the child.                                       
+      116 +                                                              
+      117  ## Commands
+      118  
+      119  | Command | Effect |
+
+  Committed 9a81e9e, ran 2 shell commands (ctrl+o to expand)
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+● Two follow-ups worth doing: the idempotency guard I advertised has no
+  committed test, and the error message change was a regression in clarity.
+
+● Update(server\src\server.ts)
+  ⎿  Added 1 line, removed 1 line
+      23    // exception and dumps a stack trace instead of the clean mes
+          sage every
+      24    // other failure mode in this file produces.
+      25    server.on('error', (err: Error) => {
+      26 -    console.error(`HTTP server error (port ${env.port}): ${err.
+         -message}`);                                                    
+      26 +    console.error(`Failed to bind port ${env.port}: ${err.messa
+         +ge}`);                                                         
+      27      process.exit(1);
+      28    });
+      29  
+
+● Update(server\src\lib\shutdown.ts)
+  ⎿  Added 6 lines, removed 1 line
+       90   * SIGTERM is what a container runtime sends and is the reason
+            this exists at
+       91   * all; it is never delivered on Windows, so local verificatio
+           n means Ctrl-C.
+       92   */
+       93 -export function attachGracefulShutdown(deps: ShutdownDeps): vo
+          -id {                                                          
+       93 +export function attachGracefulShutdown(                       
+       94 +  deps: ShutdownDeps,                                         
+       95 +  // Injectable purely so the tests can assert the exit code w
+          +ithout killing the                                            
+       96 +  // test runner. Production always uses process.exit.        
+       97 +  exit: (code: number) => void = (code) => process.exit(code),
+       98 +): void {                                                     
+       99    const log = deps.log ?? console.log;
+      100    let shuttingDown = false;
+      101  
+
+● Update(server\src\lib\shutdown.ts)
+  ⎿  Added 1 line, removed 1 line
+      108  
+      109        log(`Received ${signal}, shutting down…`);
+      110        void shutdown(deps).then((code) => {
+      111 -        process.exit(code);                                   
+      111 +        exit(code);                                           
+      112        });
+      113      });
+      114    }
+
+● Update(server\test\shutdown.test.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      1 -import { describe, it, expect, vi } from 'vitest';              
+      1 +import { describe, it, expect, vi, afterEach } from 'vitest';   
+      2  import type { Server } from 'node:http';
+      3 -import { shutdown } from '../src/lib/shutdown.js';              
+      3 +import { shutdown, attachGracefulShutdown } from '../src/lib/shu
+        +tdown.js';                                                      
+      4  
+      5  /**
+      6   * A server that records the order of calls and lets each test d
+         ecide how
+
+● Update(server\test\shutdown.test.ts)
+  ⎿  Added 80 lines
+       94      expect(logError).toHaveBeenCalledWith(expect.stringContain
+           ing('sockets still attached'));
+       95    });
+       96  });
+       97 +                                                              
+       98 +const SIGNALS = ['SIGINT', 'SIGTERM'] as const;               
+       99 +                                                              
+      100 +/**                                                           
+      101 + * Attaches, then hands back the listeners that were added so 
+          +a test can invoke                                             
+      102 + * them directly.                                             
+      103 + *                                                            
+      104 + * Invoking rather than `process.emit('SIGINT')` on purpose: a
+          + real emit also                                               
+      105 + * fires Vitest's own signal handlers and would tear down the 
+          +run.                                                          
+      106 + */                                                           
+      107 +function attachAndCapture(deps: Parameters<typeof attachGracef
+          +ulShutdown>[0], exit: (code: number) => void) {               
+      108 +  const before = new Map(SIGNALS.map((s) => [s, new Set(proces
+          +s.listeners(s))]));                                           
+      109 +  attachGracefulShutdown(deps, exit);                         
+      110 +                                                              
+      111 +  const added = new Map(                                      
+      112 +    SIGNALS.map((s) => [s, process.listeners(s).filter((l) => 
+          +!before.get(s)?.has(l))]),                                    
+      113 +  );                                                          
+      114 +  registered.push(added);                                     
+      115 +  return added;                                               
+      116 +}                                                             
+      117 +                                                              
+      118 +const registered: Map<(typeof SIGNALS)[number], ((...args: nev
+          +er[]) => void)[]>[] = [];                                     
+      119 +                                                              
+      120 +afterEach(() => {                                             
+      121 +  // Remove only our own listeners — never removeAllListeners,
+          + which would strip                                            
+      122 +  // Vitest's and break its cleanup.                          
+      123 +  for (const added of registered) {                           
+      124 +    for (const [signal, listeners] of added) {                
+      125 +      for (const listener of listeners) process.removeListener
+          +(signal, listener);                                           
+      126 +    }                                                         
+      127 +  }                                                           
+      128 +  registered.length = 0;                                      
+      129 +});                                                           
+      130 +                                                              
+      131 +describe('attachGracefulShutdown', () => {                    
+      132 +  it('registers a handler for both SIGINT and SIGTERM', () => 
+          +{                                                             
+      133 +    // SIGTERM is what a container runtime sends and is the re
+          +ason this exists.                                             
+      134 +    const { server } = makeFakeServer();                      
+      135 +    const added = attachAndCapture({ server, db: makeFakeDb(),
+          + ...silent }, () => {});                                      
+      136 +                                                              
+      137 +    expect(added.get('SIGINT')).toHaveLength(1);              
+      138 +    expect(added.get('SIGTERM')).toHaveLength(1);             
+      139 +  });                                                         
+      140 +                                                              
+      141 +  it('exits 0 after a clean shutdown', async () => {          
+      142 +    const { server } = makeFakeServer();                      
+      143 +    const exit = vi.fn();                                     
+      144 +    const added = attachAndCapture({ server, db: makeFakeDb(),
+          + ...silent }, exit);                                          
+      145 +                                                              
+      146 +    added.get('SIGINT')?.[0]?.();                             
+      147 +    await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith
+          +(0); });                                                      
+      148 +  });                                                         
+      149 +                                                              
+      150 +  it('propagates a failed shutdown as a non-zero exit code', a
+          +sync () => {                                                  
+      151 +    const { server } = makeFakeServer();                      
+      152 +    const exit = vi.fn();                                     
+      153 +    const added = attachAndCapture({ server, db: makeFakeDb('e
+          +rror'), ...silent }, exit);                                   
+      154 +                                                              
+      155 +    added.get('SIGINT')?.[0]?.();                             
+      156 +    await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith
+          +(1); });                                                      
+      157 +  });                                                         
+      158 +                                                              
+      159 +  it('ignores a second signal instead of starting a second shu
+          +tdown', async () => {                                         
+      160 +    // A second Ctrl-C during a slow drain must not race the f
+          +irst shutdown's                                               
+      161 +    // exit code, or close an already-closed pool.            
+      162 +    const { server } = makeFakeServer();                      
+      163 +    const db = makeFakeDb();                                  
+      164 +    const exit = vi.fn();                                     
+      165 +    const added = attachAndCapture({ server, db, ...silent }, 
+          +exit);                                                        
+      166 +                                                              
+      167 +    const handler = added.get('SIGINT')?.[0];                 
+      168 +    handler?.();                                              
+      169 +    handler?.();                                              
+      170 +    added.get('SIGTERM')?.[0]?.();                            
+      171 +                                                              
+      172 +    await vi.waitFor(() => { expect(exit).toHaveBeenCalled(); 
+          +});                                                           
+      173 +    expect(db.close).toHaveBeenCalledTimes(1);                
+      174 +    expect(exit).toHaveBeenCalledTimes(1);                    
+      175 +  });                                                         
+      176 +});                                                           
+  Ran 1 shell command (ctrl+o to expand)
+
+● Let me confirm the idempotency test actually catches a broken guard rather
+  than passing vacuously.
+
+● Update(server\src\lib\shutdown.ts)
+  ⎿  Added 1 line, removed 1 line
+      103      process.on(signal, () => {
+      104        // A second Ctrl-C during a slow drain must not start a 
+           second shutdown
+      105        // and race the first one's exit code.
+      106 -      if (shuttingDown) return;                               
+      106 +      if (shuttingDown && false) return;                      
+      107        shuttingDown = true;
+      108  
+      109        log(`Received ${signal}, shutting down…`);
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The test genuinely catches it — 3 exits instead of 1. Restoring the guard.
+
+● Update(server\src\lib\shutdown.ts)
+  ⎿  Added 1 line, removed 1 line
+      103      process.on(signal, () => {
+      104        // A second Ctrl-C during a slow drain must not start a 
+           second shutdown
+      105        // and race the first one's exit code.
+      106 -      if (shuttingDown && false) return;                      
+      106 +      if (shuttingDown) return;                               
+      107        shuttingDown = true;
+      108  
+      109        log(`Received ${signal}, shutting down…`);
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Tests pass; typecheck caught the listener signature. Fixing.
+
+● Update(server\test\shutdown.test.ts)
+  ⎿  Added 7 lines, removed 2 lines
+      104   * Invoking rather than `process.emit('SIGINT')` on purpose: a
+            real emit also
+      105   * fires Vitest's own signal handlers and would tear down the 
+           run.
+      106   */
+      107 +type SignalListener = (signal: NodeJS.Signals) => void;       
+      108 +                                                              
+      109  function attachAndCapture(deps: Parameters<typeof attachGracef
+           ulShutdown>[0], exit: (code: number) => void) {
+      110    const before = new Map(SIGNALS.map((s) => [s, new Set(proces
+           s.listeners(s))]));
+      111    attachGracefulShutdown(deps, exit);
+      112  
+      113    const added = new Map(
+      112 -    SIGNALS.map((s) => [s, process.listeners(s).filter((l) => 
+          -!before.get(s)?.has(l))]),                                    
+      114 +    SIGNALS.map((s) => [                                      
+      115 +      s,                                                      
+      116 +      process.listeners(s).filter((l) => !before.get(s)?.has(l
+          +)) as SignalListener[],                                       
+      117 +    ]),                                                       
+      118    );
+      119    registered.push(added);
+      120    return added;
+      121  }
+      122  
+      118 -const registered: Map<(typeof SIGNALS)[number], ((...args: nev
+          -er[]) => void)[]>[] = [];                                     
+      123 +const registered: Map<(typeof SIGNALS)[number], SignalListener
+          +[]>[] = [];                                                   
+      124  
+      125  afterEach(() => {
+      126    // Remove only our own listeners — never removeAllListeners,
+            which would strip
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(server\test\shutdown.test.ts)
+  ⎿  Added 2 lines, removed 2 lines
+       97  
+       98  const SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+       99  
+      100 +type SignalListener = (signal: NodeJS.Signals) => void;       
+      101 +                                                              
+      102  /**
+      103   * Attaches, then hands back the listeners that were added so 
+           a test can invoke
+      104   * them directly.
+     ...
+      106   * Invoking rather than `process.emit('SIGINT')` on purpose: a
+            real emit also
+      107   * fires Vitest's own signal handlers and would tear down the 
+           run.
+      108   */
+      107 -type SignalListener = (signal: NodeJS.Signals) => void;       
+      108 -                                                              
+      109  function attachAndCapture(deps: Parameters<typeof attachGracef
+           ulShutdown>[0], exit: (code: number) => void) {
+      110    const before = new Map(SIGNALS.map((s) => [s, new Set(proces
+           s.listeners(s))]));
+      111    attachGracefulShutdown(deps, exit);
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      127  
+      128  ## Testing
+      129  
+      130 -`npm test` runs 118 tests across three workspaces. **No automa
+          -ted test executes SQL** —                                     
+      130 +`npm test` runs 122 tests across three workspaces. **No automa
+          +ted test executes SQL** —                                     
+      131  the model is injected as a fake, so the suite is fast, offline
+           , and needs no
+      132  credentials.
+      133  
+
+  Committed a5f1ebe (ctrl+o to expand)
+
+● Done — two commits on feat/task-board.
+
+  What it does. On SIGINT/SIGTERM the server stops accepting connections, lets
+  in-flight requests finish, closes the Sequelize pool, and exits 0. A 10s timer
+  bounds the wait and exits 1 rather than hanging. Previously a signal killed
+  the process mid-request with the pool still open.
+
+  Two things are load-bearing, and both have tests:
+
+  - Order. Closing the pool before requests drain would turn the last few
+  in-flight requests into connection errors — the opposite of graceful.
+  - Both steps always run. An HTTP close failure is logged and the pool closes
+  anyway. Bailing out early would leak it in exactly the case where something
+  has already gone wrong.
+
+  shutdown() returns the exit code instead of calling process.exit, so the logic
+  is testable without stubbing process control; attachGracefulShutdown() is
+  thin glue.
+
+  Two corrections I made to my own work:
+
+  I commented that closeIdleConnections() was load-bearing, then probed it: with
+  a genuinely idle keep-alive socket held open (confirmed via getConnections),
+  plain close() still completed in 0ms on Node 24. So it's redundant here, not
+  load-bearing. I kept the call — package.json pins no engines, so the deploy
+  runtime is an open variable and the call is idempotent — but rewrote the
+  comment to say so honestly.
+
+  I'd also generalised the server.on('error') message away from "Failed to bind
+  port". That was a regression: that handler fires for listen failures
+  (per-connection errors go to clientError), so the original was accurate for
+  the case that occurs. Reverted.
+
+  Verification. 122/122 tests pass, typecheck clean across all three workspaces.
+  I checked the idempotency test isn't vacuous — disabling the guard fails it
+  with 3 exits instead of 1.
+
+  What I could not verify: real OS signal delivery. Windows doesn't deliver
+  SIGTERM at all, and child.kill('SIGINT') from Node on Windows hard-terminates
+  rather than signalling, so no tool call here can exercise that path. The
+  handler wiring is covered by tests; the OS→handler hop is not.
+
+  Two things for you:
+
+  - Your dev server from the earlier session is still running (pid 124316, on
+  port 3000, started before these commits). It's running the pre-shutdown code —
+  if you Ctrl-C it to try this, you'll see the old behaviour. I left it alone
+  rather than killing it.
+  - To verify by hand: stop that process, then run npx tsx src/server.ts from
+  server/ and Ctrl-C. Not npm run dev — tsx watch intercepts signals to restart
+  the child, so it won't exercise the handler cleanly. You should see Received 
+  SIGINT, shutting down… then Shutdown complete.
+
+  Task 16 against real Supabase is still the remaining gate, unchanged.
+
+✻ Brewed for 9m 43s
+
+※ recap: The task board is built and working; I just added graceful shutdown to the backend and committed it, with 122 tests and typecheck passing. Next: verify manually against real Supabase, which needs your credentials.
+
+❯ instead of using vite, can you make the server serves the client files? like  
+  serving the built version for prod, and dynamic version for dev env.          
+
+● Let me look at the pieces this touches.
+
+  Read 7 files (ctrl+o to expand)
+
+● Before I build this, let me check the approach.
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+● Two things to verify before building: how the client addresses the API, and
+  whether the flag survives tsx watch.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Client uses relative /api/... — safe. Now the tsx watch argv question that bit
+  us in Task 9.
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Flag survives tsx watch. Cleaning up the backgrounded watcher.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the client-serving module.
+
+● Write(server\src\client.ts)
+  ⎿  Wrote 87 lines to server\src\client.ts
+       1 import { join } from 'node:path';
+       2 import { fileURLToPath } from 'node:url';
+       3 import express, { type RequestHandler } from 'express';
+       4 
+       5 export type ClientMode = 'development' | 'production';
+       7 /**
+       8  * The repository root, resolved from this module rather than pr
+         ocess.cwd() so
+       9  * it does not depend on where the server was started from.
+      10  *
+     … +100 lines (ctrl+o to expand)
+
+● Update(server\src\app.ts)
+  ⎿  Added 1 line, removed 1 line
+      1 -import express, { type Express } from 'express';                
+      1 +import express, { type Express, type RequestHandler } from 'expr
+        +ess';                                                           
+      2  import type { ApiErrorBody } from '@taskboard/shared';
+      3  import type { TaskModel } from './models/Task.js';
+      4  import { errorHandler } from './middleware/errorHandler.js';
+
+● Update(server\src\app.ts)
+  ⎿  Added 9 lines, removed 1 line
+      10   * without binding a port.
+      11   *
+      12   * The task model is injected rather than imported so tests can
+           supply a fake.
+      13 + *                                                             
+      14 + * The client layer is injected the same way and defaults to em
+         +pty, which keeps                                               
+      15 + * the API testable without a built client on disk.            
+      16   */
+      14 -export function createApp(taskModel: TaskModel): Express {     
+      17 +export function createApp(taskModel: TaskModel, clientMiddlewar
+         +e: RequestHandler[] = []): Express {                           
+      18    const app = express();
+      19    app.use(express.json());
+      20  
+      21    app.get('/api/health', (_req, res) => { res.json({ status: 'o
+          k' }); });
+      22    app.use('/api/tasks', createTasksRouter(taskModel));
+      23  
+      24 +  // Between the API and the 404 on purpose: the client layer d
+         +eclines /api                                                   
+      25 +  // paths, so an unknown one still falls through to the JSON e
+         +nvelope below                                                  
+      26 +  // rather than being answered with index.html.               
+      27 +  for (const middleware of clientMiddleware) app.use(middleware
+         +);                                                             
+      28 +                                                               
+      29    app.use((_req, res) => {
+      30      const body: ApiErrorBody = { error: { code: 'NOT_FOUND', me
+          ssage: 'Route not found' } };
+      31      res.status(404).json(body);
+
+● Now the entrypoint and scripts.
+
+● Update(server\src\server.ts)
+  ⎿  Added 1 line
+      3  import { initTaskModel } from './models/Task.js';
+      4  import { createApp } from './app.js';
+      5  import { attachGracefulShutdown } from './lib/shutdown.js';
+      6 +import { createClientMiddleware } from './client.js';           
+      7  
+      8  async function main(): Promise<void> {
+      9    const env = loadEnv();
+
+● Update(server\src\server.ts)
+  ⎿  Added 7 lines, removed 2 lines
+      13    await sequelize.authenticate();
+      14  
+      15    const taskModel = initTaskModel(sequelize);
+      16 -  const app = createApp(taskModel);                            
+      16  
+      17 +  // The mode comes from the invocation, not from .env: the sam
+         +e .env is copied                                               
+      18 +  // between the local and Supabase templates, so putting the s
+         +witch there would                                              
+      19 +  // let a template copy silently change how the client is serv
+         +ed.                                                            
+      20 +  const mode = process.argv.includes('--dev') ? 'development' :
+         + 'production';                                                 
+      21 +  const app = createApp(taskModel, await createClientMiddleware
+         +(mode));                                                       
+      22 +                                                               
+      23    const server = app.listen(env.port, () => {
+      19 -    console.log(`API listening on http://localhost:${env.port}`
+         -);                                                             
+      24 +    console.log(`Task board (${mode}) on http://localhost:${env
+         +.port}`);                                                      
+      25    });
+      26  
+      27    // listen() doesn't throw synchronously on a bind failure — i
+          t emits 'error'
+
+● Update(server\package.json)
+  ⎿  Added 1 line, removed 1 line
+       4    "private": true,
+       5    "type": "module",
+       6    "scripts": {
+       7 -    "dev": "tsx watch --env-file-if-exists=../.env src/server.t
+         -s",                                                            
+       7 +    "dev": "tsx watch --env-file-if-exists=../.env src/server.t
+         +s --dev",                                                      
+       8      "start": "node --env-file-if-exists=../.env dist/server.js"
+          ,
+       9      "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts
+           up",
+      10      "migrate:down": "tsx --env-file-if-exists=../.env src/migra
+          te.ts down",
+
+● Update(server\package.json)
+  ⎿  Added 2 lines, removed 1 line
+      23      "@types/node": "^24.0.0",
+      24      "@types/supertest": "^6.0.0",
+      25      "supertest": "^7.2.2",
+      26 -    "tsx": "^4.23.13"                                          
+      26 +    "tsx": "^4.23.13",                                         
+      27 +    "vite": "^8.2.2"                                           
+      28    }
+      29  }
+
+● Update(package.json)
+  ⎿  Added 2 lines, removed 3 lines
+       4    "type": "module",
+       5    "workspaces": ["shared", "server", "client"],
+       6    "scripts": {
+       7 -    "dev": "concurrently -n server,client -c blue,magenta \"npm
+         -:dev:server\" \"npm:dev:client\"",                             
+       8 -    "dev:server": "npm run dev -w server",                     
+       9 -    "dev:client": "npm run dev -w client",                     
+       7 +    "dev": "npm run dev -w server",                            
+       8 +    "start": "npm start -w server",                            
+       9      "migrate": "npm run migrate -w server",
+      10      "migrate:down": "npm run migrate:down -w server",
+      11      "test": "vitest run",
+
+● Update(package.json)
+  ⎿  Removed 1 line
+      13      "build": "npm run build -w server && npm run build -w clien
+          t"
+      14    },
+      15    "devDependencies": {
+      16 -    "concurrently": "^10.0.5",                                 
+      16      "typescript": "7.0.2",
+      17      "vitest": "5.0.0"
+      18    }
+
+● Update(client\vite.config.ts)
+  ⎿  Added 3 lines, removed 4 lines
+       2  import react from '@vitejs/plugin-react';
+       3  import tailwindcss from '@tailwindcss/vite';
+       4  
+       5 +// No `server.proxy`: Vite runs in middleware mode inside the E
+         +xpress server                                                  
+       6 +// (see server/src/client.ts), so the client and the API are al
+         +ready one origin                                               
+       7 +// and there is nothing to proxy to. The client fetches relativ
+         +e /api paths.                                                  
+       8  export default defineConfig({
+       9    plugins: [react(), tailwindcss()],
+       7 -  server: {                                                    
+       8 -    // Same-origin in development, so the server needs no CORS 
+         -middleware.                                                    
+       9 -    proxy: { '/api': { target: 'http://localhost:3000', changeO
+         -rigin: true } },                                               
+      10 -  },                                                           
+      10  });
+
+● Now the tests, with a fixture client build.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(server\test\client.test.ts)
+  ⎿  Wrote 93 lines to server\test\client.test.ts
+       1 import { describe, it, expect, vi } from 'vitest';
+       2 import { fileURLToPath } from 'node:url';
+       4 import type { RequestHandler } from 'express';
+       5 import { createApp } from '../src/app.js';
+       6 import { staticClientMiddleware, skipApi } from '../src/client.j
+       7 import { makeFakeTaskModel } from './helpers/fakeTaskModel.js';
+       8 
+       9 /** A stand-in for a `vite build` output: hashed asset, index.ht
+      10 const fixtureDist = fileURLToPath(new URL('./fixtures/client-dis
+         t', import.meta.url));
+     … +105 lines (ctrl+o to expand)
+
+  Read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● The immutable test caught a real bug — returning bare handlers dropped the
+  /assets mount path, so assets fell through to the root static. Fixing with a
+  router.
+
+● Update(server\src\client.ts)
+  ⎿  Added 20 lines, removed 12 lines
+      35  export function staticClientMiddleware(distDir: string = client
+          Dist): RequestHandler[] {
+      36    const indexHtml = join(distDir, 'index.html');
+      37  
+      38 -  return [                                                     
+      39 -    express.static(join(distDir, 'assets'), { immutable: true, 
+         -maxAge: '1y' }) as RequestHandler,                             
+      40 -    // index: false so a bare "/" falls through to the handler 
+         -below, which is                                                
+      41 -    // the single place index.html is served from.             
+      42 -    express.static(distDir, { index: false }) as RequestHandler
+         -,                                                              
+      43 -    (req, res, next) => {                                      
+      44 -      if (req.method !== 'GET' && req.method !== 'HEAD') return
+         - next();                                                       
+      45 -      if (isApiPath(req.path)) return next();                  
+      38 +  // A Router rather than loose handlers: the /assets mount pat
+         +h only exists if                                               
+      39 +  // something carries it. Returned as bare middleware, the ass
+         +ets static would                                               
+      40 +  // be mounted at "/" by the caller and look for dist/assets/a
+         +ssets/*, missing                                               
+      41 +  // every file and silently handing them to the un-cached stat
+         +ic below.                                                      
+      42 +  const router = express.Router();                             
+      43  
+      47 -      res.setHeader('Cache-Control', 'no-cache');              
+      48 -      res.sendFile(indexHtml, (err: unknown) => { if (err) next
+         -(err); });                                                     
+      49 -    },                                                         
+      50 -  ];                                                           
+      44 +  router.use('/assets', express.static(join(distDir, 'assets'),
+         + { immutable: true, maxAge: '1y' }));                          
+      45 +                                                               
+      46 +  // index: false so a bare "/" falls through to the handler be
+         +low, which is the                                              
+      47 +  // single place index.html is served from.                   
+      48 +  router.use(express.static(distDir, { index: false }));       
+      49 +                                                               
+      50 +  router.use((req, res, next) => {                             
+      51 +    if (req.method !== 'GET' && req.method !== 'HEAD') return n
+         +ext();                                                         
+      52 +    if (isApiPath(req.path)) return next();                    
+      53 +                                                               
+      54 +    res.setHeader('Cache-Control', 'no-cache');                
+      55 +    res.sendFile(indexHtml, (err: unknown) => { if (err) next(e
+         +rr); });                                                       
+      56 +  });                                                          
+      57 +                                                               
+      58 +  return [router];                                             
+      59  }
+      60  
+      61  /**
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now install the new server dependency and run everything.
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Now let me verify both paths actually work. Building first.
+
+  Made 1 scratchpad edit +75, ran 3 shell commands (ctrl+o to expand)
+
+● Both modes work against the real database. Let me confirm the dev path renders
+  and works in an actual browser.
+
+  Called claude-in-chrome 3 times, ran 2 shell commands (ctrl+o to expand)
+
+● Blank page — title loaded but nothing rendered. Checking the console.
+
+  Read 1 file, called claude-in-chrome 3 times, ran 1 shell command (ctrl+o to expand)
+
+● That's a real defect: tsx watch and Vite fight each other in an infinite
+  restart loop. Killing it.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Background command "Start the dev server on port 3005" failed with exit code
+127
+
+● Root cause: Vite compiles vite.config.ts to a temp file under
+  client/node_modules/.vite-temp/ and unlinks it; tsx watch sees the unlink and
+  restarts, which makes Vite do it again. The server's watcher should never have
+  been watching client files.
+
+● Update(server\package.json)
+  ⎿  Added 1 line, removed 1 line
+       4    "private": true,
+       5    "type": "module",
+       6    "scripts": {
+       7 -    "dev": "tsx watch --env-file-if-exists=../.env src/server.t
+         -s --dev",                                                      
+       7 +    "dev": "tsx watch --ignore ../client/** --env-file-if-exist
+         +s=../.env src/server.ts --dev",                                
+       8      "start": "node --env-file-if-exists=../.env dist/server.js"
+          ,
+       9      "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts
+           up",
+      10      "migrate:down": "tsx --env-file-if-exists=../.env src/migra
+          te.ts down",
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Shell glob expansion — needs quoting.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Stable — one boot, zero restarts. Fixing the script quoting.
+
+● Update(server\package.json)
+  ⎿  Added 1 line, removed 1 line
+       4    "private": true,
+       5    "type": "module",
+       6    "scripts": {
+       7 -    "dev": "tsx watch --ignore ../client/** --env-file-if-exist
+         -s=../.env src/server.ts --dev",                                
+       7 +    "dev": "tsx watch --ignore \"../client/**\" --env-file-if-e
+         +xists=../.env src/server.ts --dev",                            
+       8      "start": "node --env-file-if-exists=../.env dist/server.js"
+          ,
+       9      "migrate": "tsx --env-file-if-exists=../.env src/migrate.ts
+           up",
+      10      "migrate:down": "tsx --env-file-if-exists=../.env src/migra
+          te.ts down",
+
+● The dev server is up on 3005. Checking it in the browser.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● App renders on a single origin. Now testing HMR with a real edit.
+
+  Called claude-in-chrome, ran 2 shell commands (ctrl+o to expand)
+
+● HMR confirmed — heading updated with no page reload. Reverting.
+
+  Called claude-in-chrome 6 times, ran 2 shell commands (ctrl+o to expand)
+● Create works on the single origin. Now exercising delete to clean up my test
+  task.
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+● Confirming the watcher still restarts on server changes (I only excluded the
+  client).
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Clean. Shutting down the dev server and updating the docs.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 8 lines, removed 4 lines
+      15  cp .env.docker.example .env   # local connection settings
+      16  npm install
+      17  npm run migrate               # create the tasks table
+      18 -npm run dev                   # API on :3000, client on :5173  
+      18 +npm run dev                   # everything on :3000            
+      19  ```
+      20  
+      21 -Open http://localhost:5173. The Vite dev server proxies `/api` 
+         -to the API, so the                                             
+      22 -browser sees one origin and the server needs no CORS middleware
+         -.                                                              
+      21 +Open http://localhost:3000. The Express server serves the clien
+         +t as well as the API,                                          
+      22 +so there is one process, one port, and one origin — no proxy an
+         +d no CORS middleware.                                          
+      23  
+      24 -Only the database is containerised. The API and Vite stay on th
+         -e host so `npm run dev`                                        
+      24 +In development it runs Vite in middleware mode, so you still ge
+         +t transforms and hot                                           
+      25 +module replacement; in production it serves `client/dist`. See 
+      26 +[Serving the client](#serving-the-client).                     
+      27 +                                                               
+      28 +Only the database is containerised. The server stays on the hos
+         +t so `npm run dev`                                             
+      29  keeps hot reload.
+      30  
+      31  | Command | Effect |
+
+● Update(README.md)
+  ⎿  Added 31 lines
+      104  single atomic `UPDATE ... SET completed = NOT completed`. That
+            makes it **not
+      105  idempotent**, which is why the client pins TanStack Query's mu
+           tation `retry` to `0`.
+      106  
+      107 +## Serving the client                                         
+      108 +                                                              
+      109 +One server serves both the API and the client. Which client de
+          +pends on how the                                              
+      110 +server was started:                                           
+      111 +                                                              
+      112 +| Command | Mode | Client |                                   
+      113 +|---|---|---|                                                 
+      114 +| `npm run dev` | development | Vite in middleware mode — tran
+          +sforms and HMR |                                              
+      115 +| `npm start` | production | the built files in `client/dist` 
+          +|                                                             
+      116 +                                                              
+      117 +The switch is the `--dev` flag in the server's `dev` script, n
+          +ot an environment                                             
+      118 +variable. `.env` is copied between the local and Supabase temp
+          +lates, so a mode                                              
+      119 +stored there would change how the client is served every time 
+          +you swapped                                                   
+      120 +templates. The flag belongs to the invocation.                
+      121 +                                                              
+      122 +Vite is imported dynamically, so production never loads it — `
+          +npm start` runs the                                           
+      123 +compiled output with devDependencies absent.                  
+      124 +                                                              
+      125 +Requests under `/api` never reach the client layer. Vite's SPA
+          + fallback would                                               
+      126 +otherwise answer a mistyped `/api/taks` from a browser with `i
+          +ndex.html`, so a bad                                          
+      127 +API path would return HTML in development and a JSON 404 in pr
+          +oduction. Everything                                          
+      128 +else falls through to `index.html`, so refreshing on a client 
+          +route works.                                                  
+      129 +                                                              
+      130 +`npm run build` must run before `npm start`; without `client/d
+          +ist` the server starts                                        
+      131 +and answers the API, but every page request 404s.             
+      132 +                                                              
+      133 +> **Note:** the server's file watcher excludes `client/`. Vite
+          + compiles                                                     
+      134 +> `vite.config.ts` to a temp file under `client/node_modules/.
+          +vite-temp/` and then                                          
+      135 +> deletes it; a watcher that sees that deletion restarts the s
+          +erver, which makes Vite                                       
+      136 +> do it again — an endless restart loop. Client changes are Vi
+          +te's job anyway.                                              
+      137 +                                                              
+      138  ## Shutdown
+      139  
+      140  On `SIGINT` or `SIGTERM` the API stops accepting connections, 
+           lets in-flight
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      45  ```bash
+      46  cp .env.example .env          # then fill in your Supabase valu
+          es
+      47  npm run migrate
+      48 -npm run dev                   # or: npm run build && npm start 
+      48 +npm run build && npm start    # serves the built client from cl
+         +ient/dist                                                      
+      49  ```
+      50  
+      51  Leave `DB_SSL` unset for Supabase. It defaults to `require`.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 2 lines, removed 1 line
+      153  
+      154  | Command | Effect |
+      155  |---|---|
+      156 -| `npm run dev` | server and client together |                
+      156 +| `npm run dev` | API and client on one port, with HMR |      
+      157 +| `npm start` | the same, serving the built client |          
+      158  | `npm run migrate` | apply pending migrations |
+      159  | `npm run migrate:down` | roll back one migration |
+      160  | `npm test` | full test suite |
+
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      163  
+      164  ## Testing
+      165  
+      166 -`npm test` runs 122 tests across three workspaces. **No automa
+          -ted test executes SQL** —                                     
+      166 +`npm test` runs 136 tests across three workspaces. **No automa
+          +ted test executes SQL** —                                     
+      167  the model is injected as a fake, so the suite is fast, offline
+           , and needs no
+      168  credentials.
+      169  
+
+● Let me check .gitignore doesn't swallow the new fixture directory.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 5 lines
+      173  now cheap to rehearse against the local container before runni
+           ng it against Supabase.
+      174  
+      175  Run that checklist after any change to the model, the migratio
+           n, or the toggle query.
+      176 +                                                              
+      177 +The same applies to the development client path. The static pa
+          +th and the `/api` guard                                       
+      178 +are covered by tests against a fixture build, but nothing spin
+          +s up Vite, so changes to                                      
+      179 +`devClientMiddleware` or to `vite.config.ts` need `npm run dev
+          +` and a page load to                                          
+      180 +verify.                                                       
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+● Point 1 is a real bug. Let me confirm the actual failure mode before fixing.
+
+  Made 1 scratchpad edit +12, ran 3 shell commands (ctrl+o to expand)
+
+● Confirmed: it's a 500, not a 404 — my README claim was wrong. Failing fast
+  instead, matching how loadEnv handles missing config.
+
+● Update(server\src\client.ts)
+  ⎿  Added 1 line
+      1 +import { existsSync } from 'node:fs';                           
+      2  import { join } from 'node:path';
+      3  import { fileURLToPath } from 'node:url';
+      4  import express, { type RequestHandler } from 'express';
+
+● Update(server\src\client.ts)  ⎿  Added 9 lines
+      36  export function staticClientMiddleware(distDir: string = client
+          Dist): RequestHandler[] {
+      37    const indexHtml = join(distDir, 'index.html');
+      38  
+      39 +  // Fail at startup, not per request. Without this a forgotten
+         + `npm run build`                                               
+      40 +  // produces a 500 INTERNAL_ERROR and a logged stack trace on 
+         +every page load —                                              
+      41 +  // sendFile's ENOENT reaches the error handler, which cannot 
+         +tell a missing                                                 
+      42 +  // build from a genuine fault. Same reasoning as loadEnv: nam
+         +e the problem                                                  
+      43 +  // once, at the point it can still be fixed cheaply.         
+      44 +  if (!existsSync(indexHtml)) {                                
+      45 +    throw new Error(`No client build at ${indexHtml} — run "npm
+         + run build" before starting in production.`);                  
+      46 +  }                                                            
+      47 +                                                               
+      48    // A Router rather than loose handlers: the /assets mount pat
+          h only exists if
+      49    // something carries it. Returned as bare middleware, the ass
+          ets static would
+      50    // be mounted at "/" by the caller and look for dist/assets/a
+          ssets/*, missing
+
+● Update(server\test\client.test.ts)
+  ⎿  Added 10 lines
+      56      expect(res.body).toEqual({ error: { code: 'NOT_FOUND', mess
+          age: 'Route not found' } });
+      57    });
+      58  
+      59 +  it('refuses to start without a client build, naming the path 
+         +and the fix', () => {                                          
+      60 +    // Otherwise a forgotten `npm run build` surfaces as a 500 
+         +on every page                                                  
+      61 +    // load — sendFile's ENOENT reaches the error handler, whic
+         +h reports an                                                   
+      62 +    // internal fault rather than the real, trivially fixable c
+         +ause.                                                          
+      63 +    const missing = fileURLToPath(new URL('./fixtures/no-such-b
+         +uild', import.meta.url));                                      
+      64 +                                                               
+      65 +    expect(() => staticClientMiddleware(missing)).toThrowError(
+         +/npm run build/);                                              
+      66 +    expect(() => staticClientMiddleware(missing)).toThrowError(
+         +/index\.html/);                                                
+      67 +  });                                                          
+      68 +                                                               
+      69    it('leaves the API itself reachable', async () => {
+      70      const res = await request(appWithClient()).get('/api/health
+          ');
+      71      expect(res.status).toBe(200);
+
+● Now fixing the two README claims — the 500 and the shutdown-verification line.
+
+● Update(README.md)
+  ⎿  Added 3 lines, removed 2 lines
+      127  API path would return HTML in development and a JSON 404 in pr
+           oduction. Everything
+      128  else falls through to `index.html`, so refreshing on a client 
+           route works.
+      129  
+      130 -`npm run build` must run before `npm start`; without `client/d
+          -ist` the server starts                                        
+      131 -and answers the API, but every page request 404s.             
+      130 +`npm run build` must run before `npm start`. Without `client/d
+          +ist` the server refuses                                       
+      131 +to start and names the missing file — rather than starting and
+          + turning every page                                           
+      132 +request into a 500, which is what a missing build looks like t
+          +o an error handler.                                           
+      133  
+      134  > **Note:** the server's file watcher excludes `client/`. Vite
+            compiles
+      135  > `vite.config.ts` to a temp file under `client/node_modules/.
+           vite-temp/` and then
+
+● Update(README.md)
+  ⎿  Added 4 lines, removed 2 lines
+      147  race the first shutdown's exit code.
+      148  
+      149  `SIGTERM` is what a container runtime sends and is the reason 
+           this exists. Windows
+      150 -never delivers it, so verify locally with Ctrl-C — and against
+          - `tsx src/server.ts`                                          
+      151 -rather than `npm run dev`, since `tsx watch` intercepts signal
+          -s to restart the child.                                       
+      150 +never delivers it, so verify locally with Ctrl-C — and against
+      151 +`npx tsx src/server.ts --dev` from `server/` rather than `npm 
+          +run dev`, since                                               
+      152 +`tsx watch` intercepts signals to restart the child. Keep the 
+          +`--dev`: without it                                           
+      153 +that command needs a client build.                            
+      154  
+      155  ## Commands
+      156  
+
+● Now the npm start path the advisor flagged — I never ran the actual script.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● --env-file doesn't override the shell, so I can run the real script on a spare
+  port.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The real npm start works. Now verifying the fail-fast actually fires
+  end-to-end.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Restore failed — checking the tree state immediately.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Restored. Now checking the message it printed.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Clean failure with the path and the fix, exit 1. Stopping the test server and
+  committing.
+
+  Committed 68a2850, ran 3 shell commands (ctrl+o to expand)
+
+● The branch changed from feat/task-board to main partway through. Let me check
+  what happened.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+● Done — three commits.
+
+  What changed. Express now serves the client as well as the API: one process,
+  one port, one origin. npm run dev runs Vite in middleware mode (transforms and
+  HMR intact); npm start serves client/dist. The Vite dev server and its /api
+  proxy are gone, as is concurrently.
+
+  The mode comes from a --dev flag on the invocation, not from .env. The same
+  .env gets copied between your local and Supabase templates, so a mode stored
+  there would change how the client is served every time you swapped templates.
+  Vite is imported dynamically, so production never loads it — and it's now an
+  explicit server devDependency rather than something reached through workspace
+  hoisting.
+
+  Requests under /api never reach the client layer. Without that guard, Vite's
+  SPA fallback answers a mistyped /api/taks from a browser with index.html, so a
+  bad API path would return HTML in dev and a JSON 404 in production.
+
+  Three real bugs surfaced while verifying, all fixed:
+
+  - tsx watch and Vite deadlocked into an endless restart loop. Vite compiles
+  vite.config.ts to a temp file under client/node_modules/.vite-temp/ and
+  deletes it; the watcher saw the deletion, restarted, and Vite did it again —
+  ~1.6s per cycle, forever. That's why my first browser check showed a blank
+  page. The server's watcher now excludes client/, which it should never have
+  been watching. Server files still trigger restarts — I checked.
+  - Returning the static handlers as bare middleware dropped the /assets mount 
+  path, so hashed assets fell through to the un-cached static and lost their
+  immutable caching. They're a Router now. A test caught this.
+  - A missing client/dist produced a 500, not a 404. sendFile's ENOENT reached
+  the error handler, which can't tell a missing build from a genuine fault — so
+  a forgotten npm run build meant an opaque 500 and a stack trace on every page
+  load. I confirmed the 500 by observation, then made it fail at startup naming
+  the path and the command. My earlier README claim of "404s" was wrong and is
+  corrected.
+
+  Verification. 137 tests pass, typecheck clean, both builds succeed. Both modes
+  exercised against the local Postgres: root and deep routes serve index.html,
+  hashed assets are immutable, index.html is no-cache, /api/nope still returns
+  the JSON envelope. In a browser on the dev path: the app renders, HMR updated
+  the heading with no page reload, and create and delete both round-trip (I
+  deleted the task I created, so your data is as you left it). I ran the real
+  npm start script rather than a hand-built equivalent, and verified the
+  fail-fast by moving client/dist aside — clean message, exit 1.
+
+  The fail-fast covers production only; devClientMiddleware has no equivalent
+  guard and doesn't need one, since Vite reads sources rather than a build.
+  Nothing spins up Vite in the test suite, so changes to that path still need a
+  manual page load — noted in the README.
+
+  Two things you should know:
+
+  - You renamed feat/task-board to main and added origin
+  (AnthonyTsang/task-board) partway through. My last three commits landed on
+  main and are unpushed — I didn't push, since you didn't ask.
+  - Your npm run dev on port 3000 is in a misleading state. tsx watch restarted
+  its child onto the new code but re-ran its original command line, so it has no
+  --dev: it's serving client/dist in production mode with no HMR and a stale
+  build. Stop it and re-run npm run dev to pick up both the flag and the ignore
+  pattern — otherwise this will look broken when it isn't.
+
+  Task 16 against real Supabase remains the outstanding gate, unchanged.
+
+✻ Cogitated for 17m 41s
+
+❯ can you stop the server?                                                      
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found the tree: a tsx watch parent (55000) respawning the listener (131528),
+  plus leftover npm shims from earlier npm run dev invocations. Stopping parents
+  first so nothing respawns.
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Background command "Start dev servers" failed with exit code 127
+
+● Two orphans left from the old concurrently-based npm run dev. Clearing them.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ /compact                                                                      
+
+● Stopped. Ports 3000 and 5173 are free and no project Node processes remain.
+
+  There was more running than just the one server — the old concurrently-based
+  npm run dev had left a supervisor, a Vite process, and several npm shims
+  behind, alongside the tsx watch parent that was respawning the listener on
+  3000. I stopped the parents first so nothing could restart, then cleared the
+  orphans:
+
+  - npm run dev / dev:server / dev:client shims and the concurrently supervisor
+  - the stray vite process from the old two-server setup
+  - tsx watch (55000) and the server it kept respawning (131528)
+
+  I left the Postgres container running — you didn't ask me to stop it, and
+  docker compose down would end your local database session. Stop it with docker
+  compose down if you want; add -v only if you want the local data gone.
+
+  When you next start it, npm run dev now brings up everything on
+  http://localhost:3000 — one process, HMR included.
+
+✻ Brewed for 57s
+
+❯ /compact                                                                      
+  ⎿  Compacted (ctrl+o to see full summary)
+     Tip: You have access to Opus 1M with 5x more context
+  ⎿  Read README.md (184 lines)
+  ⎿  Read server\test\client.test.ts (104 lines)
+  ⎿  Read server\src\client.ts (106 lines)
+  ⎿  Read C:\Users\antho\AppData\Local\Temp\claude\E--code-bmo-task-board\3d55a3
+     24-49eb-40c0-a033-aa8b05a727c6\scratchpad\probe-missing-dist.mts (12 lines)
+  ⎿  Read server\src\app.ts (37 lines)
+  ⎿  Skills restored (superpowers:subagent-driven-development, 
+     superpowers:writing-plans, superpowers:brainstorming)
+
+❯ add github actions description to README                                      
+
+  Searched for 2 patterns, read 4 files, ran 3 shell commands (ctrl+o to expand)
+
+● Advising using Opus 5
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+  Made 1 scratchpad edit +19, searched for 1 pattern, read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 64 lines
+       50  
+       51  Leave `DB_SSL` unset for Supabase. It defaults to `require`.
+       52  
+       53 +That sequence is the manual form of what pushing to `main` now
+          + does on its own — see                                        
+       54 +[Continuous deployment](#continuous-deployment).              
+       55 +                                                              
+       56 +## Continuous deployment                                      
+       57 +                                                              
+       58 +Two workflows in `.github/workflows/`:                        
+       59 +                                                              
+       60 +| Workflow | Trigger | Effect |                               
+       61 +|---|---|---|                                                 
+       62 +| `deploy.yml` | push to `main` | install, test, migrate, then
+          + trigger a Render deploy |                                    
+       63 +| `rollback.yml` | manual (`workflow_dispatch`) | roll back on
+          +e migration |                                                 
+       64 +                                                              
+       65 +Deploy runs `npm ci` → `npm test` → write `.env` → `npm run mi
+          +grate` → `POST` to the                                        
+       66 +Render deploy hook. The test step needs no credentials: no aut
+          +omated test executes                                          
+       67 +SQL (see [Testing](#testing)), so it gates the push without to
+          +uching the database.                                          
+       68 +                                                              
+       69 +The `.env` the workflow writes lives only on the runner, and o
+          +nly so the migration                                          
+       70 +step can connect. It never reaches Render — the deployed app r
+          +eads its environment                                          
+       71 +from Render's own configuration, and the build and start comma
+          +nds are set in the                                            
+       72 +Render dashboard, not in this repository.                     
+       73 +                                                              
+       74 +Two consequences worth holding on to:                         
+       75 +                                                              
+       76 +- **Migrations run against production before the new code is l
+          +ive.** For the length                                         
+       77 +  of the deploy window the old release is talking to the new s
+          +chema, so every                                               
+       78 +  migration has to be backward compatible with the release it 
+          +replaces. Adding a                                            
+       79 +  `NOT NULL` column without a default would break the running 
+          +app several minutes                                           
+       80 +  before the code that needs it arrives.                      
+       81 +- **The runner connects to the production database directly**,
+          + so `DB_HOST` has to                                          
+       82 +  accept connections from GitHub's runner addresses. Supabase'
+          +s pooler does.                                                
+       83 +                                                              
+       84 +The final `curl` is fire-and-forget: a green Deploy means Rend
+          +er accepted the                                               
+       85 +trigger, not that the deploy succeeded. Render's own dashboard
+          + is the record of that.                                       
+       86 +                                                              
+       87 +Neither workflow pins a Node version, so both run on whatever 
+          +the runner ships, and                                         
+       88 +neither runs `npm run build` — Render builds the client and se
+          +rver itself.                                                  
+       89 +                                                              
+       90 +### Secrets                                                   
+       91 +                                                              
+       92 +Set all seven in the repository's Actions secrets:            
+       93 +                                                              
+       94 +| Secret | Purpose |                                          
+       95 +|---|---|                                                     
+       96 +| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | the 
+          +migration's connection to Supabase |                          
+       97 +| `PORT` | written into the runner's `.env` |                 
+       98 +| `RENDER_DEPLOY_HOOK_URL` | the Render service's deploy hook 
+          +|                                                             
+       99 +                                                              
+      100 +`DB_SSL` is deliberately absent. Unset it defaults to `require
+          +`, which is what                                              
+      101 +Supabase needs; adding it as a secret only creates a way to ge
+          +t it wrong.                                                   
+      102 +                                                              
+      103 +`PORT` is optional to the app — it defaults to 3000 — but **re
+          +quired here**. The                                            
+      104 +workflow writes the line unconditionally, so an unset secret p
+          +roduces `PORT=`, and                                          
+      105 +an empty string is not the same as an absent one: validation r
+          +ejects it with                                                
+      106 +`PORT: Too small: expected number to be >0` and the Migrate st
+          +ep fails. Either set                                          
+      107 +the secret or drop that line from the workflow.               
+      108 +                                                              
+      109 +### Rolling back                                              
+      110 +                                                              
+      111 +`rollback.yml` runs `npm run migrate:down`: one migration, not
+          +hing else. It does not                                        
+      112 +redeploy or revert code, despite the job being named `deploy` 
+          +— to move the code back,                                      
+      113 +redeploy an earlier commit from Render. It is dispatch-only so
+          + it cannot fire on a                                          
+      114 +push, which is the point: it is a deliberate action taken duri
+          +ng an incident, not                                           
+      115 +part of the pipeline.                                         
+      116 +                                                              
+      117  ## Switching between them
+      118  
+      119  `.env` is the single active configuration; `.env.docker.exampl
+           e` and `.env.example`
+
+  Read 1 file (ctrl+o to expand)
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+       97  | `PORT` | written into the runner's `.env` |
+       98  | `RENDER_DEPLOY_HOOK_URL` | the Render service's deploy hook 
+           |
+       99  
+      100 -`DB_SSL` is deliberately absent. Unset it defaults to `require
+          -`, which is what                                              
+      100 +`DB_SSL` is deliberately absent. Left unset it defaults to `re
+          +quire`, which is what                                         
+      101  Supabase needs; adding it as a secret only creates a way to ge
+           t it wrong.
+      102  
+      103  `PORT` is optional to the app — it defaults to 3000 — but **re
+           quired here**. The
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(README.md)
+  ⎿  Added 4 lines
+      50  
+      51  Leave `DB_SSL` unset for Supabase. It defaults to `require`.
+      52  
+      53 +Production is two services: the app runs on Render, the databas
+         +e is Supabase. The                                             
+      54 +server binds `0.0.0.0` rather than localhost because Render's r
+         +outer will not reach                                           
+      55 +a process listening only on the loopback interface.            
+      56 +                                                               
+      57  That sequence is the manual form of what pushing to `main` now 
+          does on its own — see
+      58  [Continuous deployment](#continuous-deployment).
+      59  
+
+● Update(README.md)
+  ⎿  Added 3 lines, removed 3 lines
+      79  
+      80  - **Migrations run against production before the new code is li
+          ve.** For the length
+      81    of the deploy window the old release is talking to the new sc
+          hema, so every
+      82 -  migration has to be backward compatible with the release it r
+         -eplaces. Adding a                                              
+      83 -  `NOT NULL` column without a default would break the running a
+         -pp several minutes                                             
+      84 -  before the code that needs it arrives.                       
+      82 +  migration has to be backward compatible with the release it r
+         +eplaces. Dropping or                                           
+      83 +  renaming a column breaks the running app several minutes befo
+         +re the code that                                               
+      84 +  stopped reading it arrives; do it in two deploys, not one.   
+      85  - **The runner connects to the production database directly**, 
+          so `DB_HOST` has to
+      86    accept connections from GitHub's runner addresses. Supabase's
+           pooler does.
+      87  
+
+● Update(README.md)
+  ⎿  Added 4 lines, removed 2 lines
+      107  `PORT` is optional to the app — it defaults to 3000 — but **re
+           quired here**. The
+      108  workflow writes the line unconditionally, so an unset secret p
+           roduces `PORT=`, and
+      109  an empty string is not the same as an absent one: validation r
+           ejects it with
+      110 -`PORT: Too small: expected number to be >0` and the Migrate st
+          -ep fails. Either set                                          
+      111 -the secret or drop that line from the workflow.               
+      110 +`PORT: Too small: expected number to be >0` and the Migrate st
+          +ep fails. Better to                                           
+      111 +delete the line than to set the secret: `migrate.ts` validates
+          + the whole environment                                        
+      112 +but never reads the port, so the secret exists only to satisfy
+          + a check for a value                                          
+      113 +nothing in that step uses. Render sets the app's real port at 
+          +runtime.                                                      
+      114  
+      115  ### Rolling back
+      116  
+
+● Update(README.md)
+  ⎿  Added 2 lines, removed 1 line
+      110  `PORT: Too small: expected number to be >0` and the Migrate st
+           ep fails. Better to
+      111  delete the line than to set the secret: `migrate.ts` validates
+            the whole environment
+      112  but never reads the port, so the secret exists only to satisfy
+            a check for a value
+      113 -nothing in that step uses. Render sets the app's real port at 
+          -runtime.                                                      
+      113 +nothing in that step uses — and since this `.env` never leaves
+          + the runner, it is not                                        
+      114 +where the deployed app's port comes from anyway.              
+      115  
+      116  ### Rolling back
+      117  
+
+● Added a Continuous deployment section to README.md:56, after Production —
+  Supabase, plus a couple of lines up in that section so the two halves of
+  production connect (app on Render, database on Supabase, and why server.ts
+  binds 0.0.0.0).
+
+  It covers both workflows by trigger, Deploy's step order, the seven secrets,
+  and three things the YAML doesn't say out loud:
+
+  - The .env the workflow builds exists only on the runner, for the migration
+  step — it never reaches Render.
+  - Migrations run before the new code is live, so each one has to be backward
+  compatible with the release it replaces.
+  - The runner talks to production Postgres directly, so DB_HOST must accept
+  GitHub's runners.
+
+  Two things I checked rather than assumed:
+
+  - PORT is required as a secret even though the app defaults to 3000. The
+  workflow writes the line unconditionally, so an unset secret yields PORT=, and
+  zod's .default() only fires on absent, not empty. Verified against the real
+  loadEnv: PORT: Too small: expected number to be >0 — the Migrate step fails.
+  migrate.ts validates the whole schema but never reads the port, so deleting
+  that line beats setting the secret. The README says so.
+  - npm ci --dry-run is clean — the lockfile is in sync after this session's
+  concurrently removal and vite addition, so the workflow does reach the Migrate
+  step.
+
+  Three things I documented the consequence of but did not change:
+
+  1. echo DB_PASSWORD=${{ secrets.DB_PASSWORD }} >> .env is unquoted — a
+  password containing $, a backtick, &, ; or > gets mangled or executed by the
+  shell. Quoting the argument fixes it.
+  2. curl -X POST without -f exits 0 on an HTTP error, so a revoked hook URL
+  still greens the workflow. One flag.
+  3. No setup-node, so the runner's Node is unpinned. npm ci here already warns
+  EBADENGINE on jsdom@30.0.1 (wants ^22.22.2 || ^24.15.0 || >=26.0.0) — harmless
+  today, but the README now credits that test step with gating the push.
+
+  One thing worth confirming outside the repo: there's no render.yaml or
+  Dockerfile, so Render's build command lives only in the dashboard. It must run
+  npm run build — the server now refuses to start without client/dist, so a
+  wrong build command fails every deploy at startup rather than serving a broken
+  page.
+
+  Not committed — you didn't ask this time.
+
+✻ Sautéed for 5m 27s
+
+※ recap: Goal: document the new GitHub Actions deploy pipeline in the task board README. I added a Continuous deployment section covering both workflows and the seven secrets; it's written but uncommitted. Next: commit it if you want.
+
+❯ on the README, add brief explaination to the key folders, including server    
+  routes, server db, app.ts, client components, hooks, and the docs folder.     
+
+  Read 9 files, listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Advising using Opus 5
+  ⎿  ✔ Advisor has reviewed the conversation and will apply the feedback
+
+● Update(README.md)
+  ⎿  Added 47 lines
+       6  Tasks are **write-once**: title and description are set at crea
+          tion and never edited.
+       7  The only mutations afterwards are toggle and delete.
+       8  
+       9 +## Layout                                                      
+      10 +                                                               
+      11 +```                                                            
+      12 +shared/src/        types-only: TaskDto, CreateTaskInput, the er
+         +ror envelope. Server and                                       
+      13 +                   client both import it, so the wire shape has
+         + exactly one definition.                                       
+      14 +                                                               
+      15 +server/src/                                                    
+      16 +  app.ts           assembles the middleware stack: JSON, API, c
+         +lient, 404, errors. Never                                      
+      17 +                   calls listen() — that split is what lets Sup
+         +ertest drive the real app                                      
+      18 +                   without binding a port.                     
+      19 +  server.ts        the entrypoint. Loads env, connects, builds 
+         +the app, listens, and                                          
+      20 +                   wires the signal handlers.                  
+      21 +  client.ts        serves the client: Vite in development, clie
+         +nt/dist in production.                                         
+      22 +  routes/          one module per operation — createTask, listT
+         +asks, toggleTask,                                              
+      23 +                   deleteTask. index.ts composes the four into 
+         +the router app.ts mounts                                       
+      24 +                   at /api/tasks.                              
+      25 +  db/              sequelize.ts builds the connection; construc
+         +ting it opens nothing, so                                      
+      26 +                   a caller needs no reachable database. umzug.
+         +ts builds the migrator and                                     
+      27 +                   records what it applied in a SequelizeMeta t
+         +able, which is why                                             
+      28 +                   `npm run migrate` is safe to re-run.        
+      29 +  migrations/      the numbered schema changes umzug applies. A
+         + sibling of db/, not part                                      
+      30 +                   of it — the migrator globs upward into here.
+      31 +  models/Task.ts   the Sequelize model, plus the toDto() mappin
+         +g from row to wire.                                            
+      32 +  config/env.ts    validates the environment once, at startup, 
+         +naming what is wrong.                                          
+      33 +  lib/             HttpError, the zod request validator, and gr
+         +aceful shutdown.                                               
+      34 +  middleware/      the error handler that turns anything thrown
+         + into the JSON envelope.                                       
+      35 +                                                               
+      36 +client/src/                                                    
+      37 +  api/             tasksApi.ts is the only place in the client 
+         +that knows about HTTP:                                         
+      38 +                   hooks get data or an ApiError back, never a 
+         +Response. queryKeys.ts                                         
+      39 +                   holds the cache keys both sides of a mutatio
+         +n agree on.                                                    
+      40 +  hooks/           one TanStack Query hook per operation — one 
+         +query, three mutations.                                        
+      41 +                   The mutations own the optimistic updates and
+         + their rollback.                                               
+      42 +  components/      six presentational pieces. TaskItem holds it
+         +s own mutation instances,                                      
+      43 +                   so `isPending` is per row and no shared pend
+         +ing-id set is needed.                                          
+      44 +  App.tsx          owns the filter state and composes the rest.
+      45 +                                                               
+      46 +docs/superpowers/  the approved design spec and the implementat
+         +ion plan built from it.                                        
+      47 +                   History rather than configuration — but the 
+         +spec also carries the                                          
+      48 +                   manual verification checklist that Testing b
+         +elow refers to.                                                
+      49 +```                                                            
+      50 +                                                               
+      51 +Each workspace keeps its tests in a sibling `test/` directory r
+         +ather than beside the                                          
+      52 +source. The sections below go deeper where it matters: [API](#a
+         +pi),                                                           
+      53 +[Serving the client](#serving-the-client), [Shutdown](#shutdown
+         +),                                                             
+      54 +[Environment variables](#environment-variables), [A note on TLS
+         +](#a-note-on-tls).                                             
+      55 +                                                               
+      56  ## Quick start — local development
+      57  
+      58  Runs against a Postgres container. Nothing touches your product
+          ion database.
+
+  Read 1 file (ctrl+o to expand)
+
+● Added a Layout section at README.md:9, right after the intro so it reads as
+  orientation rather than an appendix.
+
+  It's a single annotated tree, one clause per entry, covering everything you
+  named plus two neighbours that would have left holes: client/src/api/ (the
+  layer between the hooks and the wire) and shared/src/. Where the README
+  already explains something at length I pointed at it instead of repeating —
+  the TLS modes, the shutdown sequence, the endpoints table, and the dev/prod
+  client split all stay in their existing sections, linked from the line under
+  the tree.
+
+  The non-obvious things it now records, rather than just naming the folder:
+
+  - app.ts never calls listen(), which is what lets Supertest drive the real
+  app.
+  - routes/ is one module per operation, composed by index.ts into what app.ts
+  mounts at /api/tasks.
+  - db/sequelize.ts opens no connection when constructed; db/umzug.ts records
+  applied migrations in SequelizeMeta, which is why migrate is re-runnable.
+  - migrations/ sits beside db/, not inside it — the migrator globs upward, so
+  moving it breaks the glob.
+  - TaskItem owns its own mutation instances, so isPending is per row.
+  - docs/superpowers/ is history, not configuration — with the caveat that the
+  spec is also where the manual verification checklist lives, so it isn't purely
+  archival.
+
+  Not committed.
+
+✻ Crunched for 2m 1s
