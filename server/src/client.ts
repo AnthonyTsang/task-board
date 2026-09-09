@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type RequestHandler } from 'express';
@@ -34,6 +35,15 @@ function isApiPath(path: string): boolean {
  * asset manifest forever. */
 export function staticClientMiddleware(distDir: string = clientDist): RequestHandler[] {
   const indexHtml = join(distDir, 'index.html');
+
+  // Fail at startup, not per request. Without this a forgotten `npm run build`
+  // produces a 500 INTERNAL_ERROR and a logged stack trace on every page load —
+  // sendFile's ENOENT reaches the error handler, which cannot tell a missing
+  // build from a genuine fault. Same reasoning as loadEnv: name the problem
+  // once, at the point it can still be fixed cheaply.
+  if (!existsSync(indexHtml)) {
+    throw new Error(`No client build at ${indexHtml} — run "npm run build" before starting in production.`);
+  }
 
   // A Router rather than loose handlers: the /assets mount path only exists if
   // something carries it. Returned as bare middleware, the assets static would

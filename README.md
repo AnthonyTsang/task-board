@@ -127,8 +127,9 @@ otherwise answer a mistyped `/api/taks` from a browser with `index.html`, so a b
 API path would return HTML in development and a JSON 404 in production. Everything
 else falls through to `index.html`, so refreshing on a client route works.
 
-`npm run build` must run before `npm start`; without `client/dist` the server starts
-and answers the API, but every page request 404s.
+`npm run build` must run before `npm start`. Without `client/dist` the server refuses
+to start and names the missing file — rather than starting and turning every page
+request into a 500, which is what a missing build looks like to an error handler.
 
 > **Note:** the server's file watcher excludes `client/`. Vite compiles
 > `vite.config.ts` to a temp file under `client/node_modules/.vite-temp/` and then
@@ -146,8 +147,10 @@ into connection errors. A second Ctrl-C during the drain is ignored, so it canno
 race the first shutdown's exit code.
 
 `SIGTERM` is what a container runtime sends and is the reason this exists. Windows
-never delivers it, so verify locally with Ctrl-C — and against `tsx src/server.ts`
-rather than `npm run dev`, since `tsx watch` intercepts signals to restart the child.
+never delivers it, so verify locally with Ctrl-C — and against
+`npx tsx src/server.ts --dev` from `server/` rather than `npm run dev`, since
+`tsx watch` intercepts signals to restart the child. Keep the `--dev`: without it
+that command needs a client build.
 
 ## Commands
 

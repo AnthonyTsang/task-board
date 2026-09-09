@@ -56,6 +56,16 @@ describe('staticClientMiddleware', () => {
     expect(res.body).toEqual({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
   });
 
+  it('refuses to start without a client build, naming the path and the fix', () => {
+    // Otherwise a forgotten `npm run build` surfaces as a 500 on every page
+    // load — sendFile's ENOENT reaches the error handler, which reports an
+    // internal fault rather than the real, trivially fixable cause.
+    const missing = fileURLToPath(new URL('./fixtures/no-such-build', import.meta.url));
+
+    expect(() => staticClientMiddleware(missing)).toThrowError(/npm run build/);
+    expect(() => staticClientMiddleware(missing)).toThrowError(/index\.html/);
+  });
+
   it('leaves the API itself reachable', async () => {
     const res = await request(appWithClient()).get('/api/health');
     expect(res.status).toBe(200);
